@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Downloader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="site-wrapper">
+    <!-- Clean Header -->
+    <header class="top-nav">
+      <div class="nav-left">
+        <a href="/" class="brand-link">
+          <span class="brand-badge">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+            </svg>
+          </span>
+          <span class="brand-name">YouTube Downloader</span>
+        </a>
+        <span class="app-tag">Local Engine</span>
+      </div>
+
+      <div class="nav-right">
+        <!-- Diagnostic Status Badges -->
+        <div class="status-group">
+          <div class="status-chip" id="ytdlp-chip" title="yt-dlp Engine Status">
+            <span class="chip-dot dot-gray" id="ytdlp-dot"></span>
+            <span id="ytdlp-label">yt-dlp</span>
+          </div>
+          <div class="status-chip" id="ffmpeg-chip" title="FFmpeg Media Merger Status">
+            <span class="chip-dot dot-gray" id="ffmpeg-dot"></span>
+            <span id="ffmpeg-label">FFmpeg</span>
+          </div>
+        </div>
+
+        <!-- Light/Dark Mode Toggle -->
+        <button type="button" class="theme-toggle-btn" id="theme-toggle" title="Toggle Light/Dark Theme" aria-label="Toggle theme">
+          <svg class="theme-icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <svg class="theme-icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="page-container">
+      
+      <!-- 1. URL Input Box -->
+      <section class="panel url-panel">
+        <div class="panel-header-simple">
+          <h2>Download YouTube Video or Playlist</h2>
+          <p class="panel-desc">Paste any YouTube URL to download with parallel batches and automatic resume.</p>
+        </div>
+
+        <form id="url-form" onsubmit="event.preventDefault(); inspectUrl();">
+          <div class="input-bar">
+            <div class="input-inner">
+              <span class="url-symbol">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                </svg>
+              </span>
+              <input 
+                type="url" 
+                id="url-input" 
+                placeholder="https://www.youtube.com/playlist?list=... or https://youtube.com/watch?v=..." 
+                required 
+                autocomplete="off"
+              />
+              <button type="button" class="action-subtle-btn" onclick="pasteClipboard()" title="Paste from clipboard">
+                Paste
+              </button>
+            </div>
+            <button type="submit" class="btn btn-primary" id="btn-inspect">
+              <span id="inspect-label">Fetch Details</span>
+              <div class="spinner hidden" id="inspect-spinner"></div>
+            </button>
+          </div>
+        </form>
+
+        <div class="demo-samples">
+          <span class="samples-label">Examples:</span>
+          <button type="button" class="sample-chip" onclick="setDemoUrl('playlist')">Sample Playlist</button>
+          <button type="button" class="sample-chip" onclick="setDemoUrl('single')">Single Video</button>
+        </div>
+      </section>
+
+      <!-- 2. Media Preview Card (Shows once inspected) -->
+      <section class="panel preview-panel hidden" id="preview-panel">
+        <div class="preview-layout">
+          <div class="thumb-container">
+            <img id="preview-thumb" src="" alt="Thumbnail" />
+            <span class="badge-type" id="preview-type-badge">Playlist</span>
+          </div>
+          <div class="preview-info">
+            <h3 id="preview-title" class="preview-title">Video Title</h3>
+            <div class="preview-metadata-row">
+              <span class="meta-pill" id="preview-channel">Channel Name</span>
+              <span class="meta-pill" id="preview-count">0 Videos</span>
+            </div>
+
+            <!-- Expandable list of videos -->
+            <div class="videos-accordion">
+              <button type="button" class="accordion-header-btn" onclick="toggleAccordion('videos-preview-list')">
+                <span>View Videos in this Playlist</span>
+                <span class="accordion-arrow">▼</span>
+              </button>
+              <div class="accordion-body hidden" id="videos-preview-list">
+                <ol class="playlist-items-ol" id="playlist-items-ol">
+                  <!-- Injected via JS -->
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Download Configuration Panel -->
+      <section class="panel config-panel" id="config-panel">
+        <div class="panel-section-title">
+          <h3>Download Settings</h3>
+        </div>
+
+        <!-- Quality Preset Options -->
+        <div class="setting-group">
+          <label class="setting-label">Quality & Format</label>
+          <div class="quality-selector" id="quality-selector">
+            <button type="button" class="quality-option active" data-quality="1080p">
+              <strong>1080p</strong>
+              <small>Full HD</small>
+            </button>
+            <button type="button" class="quality-option" data-quality="4k">
+              <strong>4K</strong>
+              <small>2160p</small>
+            </button>
+            <button type="button" class="quality-option" data-quality="1440p">
+              <strong>1440p</strong>
+              <small>2K</small>
+            </button>
+            <button type="button" class="quality-option" data-quality="720p">
+              <strong>720p</strong>
+              <small>HD</small>
+            </button>
+            <button type="button" class="quality-option" data-quality="480p">
+              <strong>480p</strong>
+              <small>SD</small>
+            </button>
+            <button type="button" class="quality-option" data-quality="best">
+              <strong>Best</strong>
+              <small>Original</small>
+            </button>
+            <button type="button" class="quality-option" data-quality="audio">
+              <strong>Audio Only</strong>
+              <small>MP3 / M4A</small>
+            </button>
+          </div>
+        </div>
+
+        <!-- Audio Format Selector (visible if audio is selected) -->
+        <div class="setting-group hidden" id="audio-container-group">
+          <label class="setting-label">Audio Container</label>
+          <div class="segmented-control">
+            <button type="button" class="segment-btn active" data-audio-fmt="m4a">M4A (AAC)</button>
+            <button type="button" class="segment-btn" data-audio-fmt="mp3">MP3</button>
+            <button type="button" class="segment-btn" data-audio-fmt="opus">OPUS</button>
+            <button type="button" class="segment-btn" data-audio-fmt="flac">FLAC</button>
+          </div>
+        </div>
+
+        <!-- Concurrency & Batch Sliders -->
+        <div class="grid-two-cols">
+          <div class="setting-card">
+            <div class="card-head-row">
+              <label for="workers-slider">Parallel Workers</label>
+              <span class="value-highlight" id="workers-count-label">3 Workers</span>
+            </div>
+            <input type="range" id="workers-slider" min="1" max="8" value="3" oninput="handleSliderChange('workers', this.value)" />
+            <p class="field-hint">Number of batches downloading at the same time</p>
+          </div>
+
+          <div class="setting-card">
+            <div class="card-head-row">
+              <label for="chunk-slider">Batch Size</label>
+              <span class="value-highlight" id="chunk-count-label">20 Videos</span>
+            </div>
+            <input type="range" id="chunk-slider" min="5" max="50" step="5" value="20" oninput="handleSliderChange('chunk', this.value)" />
+            <p class="field-hint">How many videos each parallel worker downloads</p>
+          </div>
+        </div>
+
+        <!-- Advanced Options Toggle -->
+        <div class="advanced-section">
+          <button type="button" class="advanced-toggle-btn" onclick="toggleAccordion('advanced-drawer')">
+            <span>More Options (Destination, Range, Subtitles, Cookies)</span>
+            <span class="accordion-arrow">▼</span>
+          </button>
+
+          <div class="advanced-drawer hidden" id="advanced-drawer">
+            <div class="fields-grid">
+              <div class="field-item full-width">
+                <label for="dest-folder">Download Folder</label>
+                <input type="text" id="dest-folder" value="./downloads" />
+              </div>
+
+              <div class="field-item">
+                <label for="item-start">Start Video Index</label>
+                <input type="number" id="item-start" min="1" value="1" />
+              </div>
+
+              <div class="field-item">
+                <label for="item-end">End Video Index (Optional)</label>
+                <input type="number" id="item-end" placeholder="Leave empty for all" min="1" />
+              </div>
+
+              <div class="field-item full-width">
+                <label for="browser-cookies">Use Browser Cookies</label>
+                <select id="browser-cookies">
+                  <option value="">None (Public videos)</option>
+                  <option value="chrome">Google Chrome</option>
+                  <option value="firefox">Mozilla Firefox</option>
+                  <option value="brave">Brave Browser</option>
+                  <option value="edge">Microsoft Edge</option>
+                </select>
+                <small class="field-hint">Helpful if the playlist has age-restricted or private videos</small>
+              </div>
+
+              <div class="checkboxes-group full-width">
+                <label class="custom-checkbox">
+                  <input type="checkbox" id="chk-resume" checked />
+                  <span>Enable Auto-Resume Archive (Skips already downloaded videos)</span>
+                </label>
+                <label class="custom-checkbox">
+                  <input type="checkbox" id="chk-subs" />
+                  <span>Download Subtitles</span>
+                </label>
+                <label class="custom-checkbox">
+                  <input type="checkbox" id="chk-thumb" />
+                  <span>Embed Thumbnail Artwork</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Big Download Button -->
+        <div class="download-action-bar">
+          <button type="button" class="btn btn-download-main" id="btn-start" onclick="startDownload()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>Start Download</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 4. Active Download Dashboard (Visible when downloading) -->
+      <section class="panel dashboard-panel hidden" id="dashboard-panel">
+        <div class="dashboard-header-row">
+          <div>
+            <div class="status-indicator-badge">
+              <span class="status-indicator-dot" id="status-dot-active"></span>
+              <span id="active-job-status">DOWNLOADING</span>
+            </div>
+            <h3 id="active-job-title" class="active-title">Downloading Media</h3>
+          </div>
+          <div>
+            <button type="button" class="btn btn-stop" id="btn-cancel" onclick="cancelDownload()">
+              Stop Download
+            </button>
+          </div>
+        </div>
+
+        <!-- Main Progress Bar -->
+        <div class="progress-container">
+          <div class="progress-track">
+            <div class="progress-fill" id="job-progress-fill" style="width: 0%"></div>
+          </div>
+          <div class="progress-info-row">
+            <span id="job-pct-label" class="bold-text">0% Completed</span>
+            <span id="job-batches-label">0 of 0 Batches finished</span>
+            <span id="job-time-label">Elapsed: 0s</span>
+          </div>
+        </div>
+
+        <!-- Batch Cards -->
+        <div class="batches-section">
+          <h4 class="sub-heading">Batch Jobs</h4>
+          <div class="batches-list" id="batches-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Collapsible Terminal Console -->
+        <div class="terminal-drawer">
+          <div class="terminal-bar">
+            <span class="terminal-label">Live Download Output</span>
+            <div class="terminal-btn-group">
+              <button type="button" class="terminal-action-btn" onclick="clearTerminal()">Clear</button>
+              <button type="button" class="terminal-action-btn" onclick="copyTerminal()">Copy Logs</button>
+            </div>
+          </div>
+          <div class="terminal-box" id="terminal-box">
+            <div class="log-row text-muted">[Waiting for process output...]</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. Downloaded Files Library -->
+      <section class="panel files-panel">
+        <div class="panel-header-with-action">
+          <div>
+            <h3>Downloaded Files</h3>
+            <p class="panel-desc">Media files saved in destination folder</p>
+          </div>
+          <button type="button" class="btn btn-subtle" onclick="fetchFilesList()">
+            Refresh List
+          </button>
+        </div>
+
+        <div class="table-scroller">
+          <table class="simple-table">
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Size</th>
+                <th>Date Modified</th>
+              </tr>
+            </thead>
+            <tbody id="files-list-tbody">
+              <tr>
+                <td colspan="3" class="table-empty-row">No files found yet in downloads folder.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Clean Footer -->
+    <footer class="site-footer">
+      <p>YouTube Playlist Downloader • Runs locally on your machine • Free & Open Source</p>
+    </footer>
+  </div>
+
+  <!-- Notification Toast -->
+  <div class="toast-popup hidden" id="toast-popup">
+    <span id="toast-text">Message</span>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
