@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Downloads and yt-dlp temporary files
+downloads/
+.logs/
+*.log
+*.part
+*.ytdl
+*.temp
+.yt-dlp-archive.txt
+
+# Cookies and sensitive files
+*cookies*.txt
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
