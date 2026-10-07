@@ -178,6 +178,76 @@ def check_ffmpeg(custom_path: Optional[str] = None) -> bool:
     return False
 
 
+def salvage_partial_downloads(output_dir: Path) -> List[Path]:
+    """
+    Finds unfinalized .part or .ytdl files in output_dir and repairs/muxes them
+    using ffmpeg into playable .mp4 media files so users can view interrupted downloads.
+    """
+    if not output_dir.is_dir() or not check_ffmpeg():
+        return []
+
+    part_files = list(output_dir.glob("*.part")) + list(output_dir.glob("*.ytdl"))
+    if not part_files:
+        return []
+
+    salvaged = []
+    groups: Dict[str, List[Path]] = {}
+    for pf in part_files:
+        core = re.sub(r'\.(part|ytdl)$', '', pf.name)
+        m = re.match(r'^(.*?)(?:\.f\d+)?(?:\.(?:mp4|m4a|webm|opus|mkv))?$', core)
+        base = m.group(1) if m else core
+        if base not in groups:
+            groups[base] = []
+        groups[base].append(pf)
+
+    for base, files in groups.items():
+        try:
+            video_part = None
+            audio_part = None
+            for f in files:
+                fname_lower = f.name.lower()
+                if any(x in fname_lower for x in [".m4a.", ".opus.", ".aac.", ".mp3.", "f140.", "f251.", "audio"]):
+                    audio_part = f
+                elif any(x in fname_lower for x in [".mp4.", ".webm.", "f137.", "f248.", "f398.", "f299.", "f399.", "video"]):
+                    video_part = f
+
+            out_file = output_dir / f"[PARTIAL] {base}.mp4"
+
+            if video_part and audio_part and video_part != audio_part:
+                cmd = [
+                    "ffmpeg", "-y", "-err_detect", "ignore_err",
+                    "-i", str(video_part),
+                    "-i", str(audio_part),
+                    "-c", "copy",
+                    "-movflags", "faststart",
+                    str(out_file),
+                ]
+            else:
+                target_part = video_part or files[0]
+                if target_part.stat().st_size < 100 * 1024:
+                    continue
+                cmd = [
+                    "ffmpeg", "-y", "-err_detect", "ignore_err",
+                    "-i", str(target_part),
+                    "-c", "copy",
+                    "-movflags", "faststart",
+                    str(out_file),
+                ]
+
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25)
+            if proc.returncode == 0 and out_file.is_file() and out_file.stat().st_size > 0:
+                salvaged.append(out_file)
+                for f in files:
+                    try:
+                        f.unlink()
+                    except Exception:
+                        pass
+        except Exception as e:
+            pass
+
+    return salvaged
+
+
 # ==============================================================================
 # Playlist Metadata
 # ==============================================================================
@@ -299,8 +369,8 @@ class DownloadManager:
         audio_only: bool = False,
         audio_format: str = "m4a",
         merge_format: str = "mp4",
-        concurrent_fragments: int = 3,
-        throttled_rate: str = "100K",
+        concurrent_fragments: int = 8,
+        throttled_rate: Optional[str] = None,
         retries: int = 10,
         cookies_file: Optional[str] = None,
         cookies_browser: Optional[str] = None,
@@ -323,7 +393,7 @@ class DownloadManager:
         self.audio_only = audio_only
         self.audio_format = audio_format
         self.merge_format = merge_format
-        self.concurrent_fragments = concurrent_fragments
+        self.concurrent_fragments = max(1, concurrent_fragments)
         self.throttled_rate = throttled_rate
         self.retries = retries
         self.cookies_file = cookies_file
@@ -360,18 +430,30 @@ class DownloadManager:
                 f"--playlist-end={job.end_idx}",
             ])
 
-        # Core resilience & downloading options
+        # High-speed fragment concurrency: use 16 fragments for single video or 8 for playlists
+        frag_count = 16 if not job.is_playlist or job.total_batches == 1 else max(self.concurrent_fragments, 8)
+
+        # Core resilience & chunking
         cmd.extend([
-            f"--concurrent-fragments={self.concurrent_fragments}",
+            f"--concurrent-fragments={frag_count}",
             f"--retries={self.retries}",
             f"--fragment-retries={self.retries}",
             "--file-access-retries=5",
-            "--retry-sleep=exp=1:30",
+            "--retry-sleep=exp=1:20",
             "--continue",
             "--no-overwrites",
             "--ignore-errors",
+            "--http-chunk-size=10M",
+            "--buffer-size=16M",
             f"--output={self.output_dir / self.output_template}",
         ])
+
+        # If aria2c is installed, utilize aria2c for turbo multi-connection speeds
+        if shutil.which("aria2c"):
+            cmd.extend([
+                "--downloader", "aria2c",
+                "--downloader-args", "aria2c:-s 16 -x 16 -k 1M -j 16"
+            ])
 
         if self.throttled_rate:
             cmd.append(f"--throttled-rate={self.throttled_rate}")
@@ -502,7 +584,7 @@ class DownloadManager:
             return "Could not read log."
 
     def cancel_all(self):
-        """Immediately terminates all active child processes."""
+        """Immediately terminates all active child processes and salvages partial videos."""
         with self.lock:
             self.cancelled = True
             procs = list(self.active_processes.keys())
@@ -526,6 +608,16 @@ class DownloadManager:
                         p.kill()
                     except Exception:
                         pass
+
+        # Salvage partial downloads so they are immediately playable
+        try:
+            salvaged = salvage_partial_downloads(self.output_dir)
+            if salvaged:
+                print(Colors.success(f"[✓] Salvaged {len(salvaged)} interrupted video(s) into playable files:"))
+                for s in salvaged:
+                    print(Colors.paint(f"    • {s.name}", Colors.GREEN + Colors.BOLD))
+        except Exception:
+            pass
 
     def run(self, chunks: List[Tuple[int, int]], is_playlist: bool) -> List[BatchJob]:
         """Runs all batches with worker concurrency and retry management."""
@@ -753,8 +845,8 @@ def run_interactive_wizard(ytdlp_cmd: List[str]) -> argparse.Namespace:
         end=None,
         cookies=cookies_file,
         cookies_from_browser=None,
-        concurrent_fragments=3,
-        throttled_rate="100K",
+        concurrent_fragments=8,
+        throttled_rate=None,
         retries=10,
         no_archive=False,
         archive_file=None,
@@ -879,13 +971,13 @@ Examples:
     parser.add_argument(
         "--concurrent-fragments",
         type=int,
-        default=3,
-        help="Concurrent fragment downloads per video (default: 3).",
+        default=8,
+        help="Concurrent fragment downloads per video (default: 8, up to 16 for single videos).",
     )
     parser.add_argument(
         "--throttled-rate",
-        default="100K",
-        help="Minimum download rate before assuming throttling (default: '100K'). Set to '' to disable.",
+        default=None,
+        help="Minimum download rate before assuming throttling (default: disabled to prevent restart loops).",
     )
     parser.add_argument(
         "--retries",

@@ -72,6 +72,11 @@ async function initSystemChecks() {
       ffmpegLabel.textContent = "FFmpeg Not Found";
       ffmpegDot.className = "chip-dot dot-orange";
     }
+
+    if (data.aria2c_available) {
+      const ariaChip = document.getElementById("aria2c-chip");
+      if (ariaChip) ariaChip.classList.remove("hidden");
+    }
   } catch (e) {
     console.error("System check error", e);
   }
@@ -365,6 +370,8 @@ async function cancelDownload() {
     const res = await fetch("/api/cancel", { method: "POST" });
     const data = await res.json();
     showToast(data.message || "Stopping downloads...");
+    // Refresh files list so salvaged partial video shows up immediately
+    setTimeout(fetchFilesList, 1200);
   } catch (err) {
     showToast(`Cancel failed: ${err.message}`);
   }

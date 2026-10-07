@@ -33,6 +33,7 @@ try:
         check_ffmpeg,
         fetch_playlist_info,
         find_ytdlp,
+        salvage_partial_downloads,
     )
 except ImportError:
     # Fallback if imported from another path
@@ -43,9 +44,10 @@ except ImportError:
         check_ffmpeg,
         fetch_playlist_info,
         find_ytdlp,
+        salvage_partial_downloads,
     )
 
-app = FastAPI(title="YouTube TurboDownloader Web API")
+app = FastAPI(title="YouTube Downloader Web API")
 
 BASE_DIR = Path(__file__).parent.resolve()
 STATIC_DIR = BASE_DIR / "static"
@@ -62,6 +64,7 @@ class GlobalDownloadState:
         self.status: str = "IDLE"  # IDLE, RUNNING, COMPLETED, CANCELLED, FAILED
         self.title: str = ""
         self.url: str = ""
+        self.output_dir: Optional[Path] = None
         self.total_batches: int = 0
         self.completed_batches: int = 0
         self.failed_batches: int = 0
@@ -130,8 +133,8 @@ class DownloadRequest(BaseModel):
     start: int = 1
     end: Optional[int] = None
     cookies_from_browser: Optional[str] = None
-    concurrent_fragments: int = 3
-    throttled_rate: str = "100K"
+    concurrent_fragments: int = 8
+    throttled_rate: Optional[str] = None
     retries: int = 10
     no_archive: bool = False
     embed_subs: bool = False
@@ -188,6 +191,7 @@ async def get_system_status():
     return {
         "ytdlp_version": ytdlp_ver,
         "ffmpeg_available": ffmpeg_ready,
+        "aria2c_available": bool(shutil.which("aria2c")),
         "os": platform.system(),
         "python_version": platform.python_version(),
     }
@@ -274,13 +278,30 @@ async def get_download_status():
 
 @app.post("/api/cancel")
 async def cancel_active_download():
-    """Terminates all active background download workers."""
+    """Terminates all active background download workers and salvages partial files."""
     if not state.active:
         return {"status": "ok", "message": "No active download to cancel."}
 
+    target_dir = state.output_dir
     state.cancel_all()
+
+    if target_dir:
+        try:
+            # Salvage unfinalized partial video files so they are immediately playable
+            salvaged = salvage_partial_downloads(target_dir)
+            if salvaged:
+                salvaged_names = [s.name for s in salvaged]
+                state.broadcast_log(f"[✓] Partial video salvaged: '{salvaged[0].name}' (playable in any media player!)", level="success")
+                return {
+                    "status": "ok",
+                    "message": f"Download stopped. Salvaged {len(salvaged)} playable partial video(s)!",
+                    "salvaged": salvaged_names,
+                }
+        except Exception as e:
+            print(f"Error salvaging partial downloads: {e}")
+
     state.broadcast_log("Download cancelled by user.", level="warn")
-    return {"status": "ok", "message": "Cancellation initiated."}
+    return {"status": "ok", "message": "Download stopped."}
 
 
 @app.post("/api/download")
@@ -319,6 +340,8 @@ async def start_download_job(req: DownloadRequest):
             chunk_end = min(i + req.chunk_size - 1, end_idx)
             chunks.append((i, chunk_end))
 
+    target_output_dir = Path(req.output_dir).expanduser().resolve()
+
     # Initialize state
     with state.lock:
         state.active = True
@@ -326,6 +349,7 @@ async def start_download_job(req: DownloadRequest):
         state.cancelled = False
         state.title = meta.title
         state.url = req.url
+        state.output_dir = target_output_dir
         state.total_batches = len(chunks)
         state.completed_batches = 0
         state.failed_batches = 0
@@ -390,16 +414,29 @@ def _run_download_orchestrator(
         if is_playlist:
             cmd.extend([f"--playlist-start={s_idx}", f"--playlist-end={e_idx}"])
 
+        # Multi-fragment speed acceleration: 16 fragments for single video or 8 for playlists
+        frag_count = 16 if not is_playlist or len(chunks) == 1 else max(req.concurrent_fragments, 8)
+
         cmd.extend([
-            f"--concurrent-fragments={req.concurrent_fragments}",
+            f"--concurrent-fragments={frag_count}",
             f"--retries={req.retries}",
             f"--fragment-retries={req.retries}",
-            "--retry-sleep=exp=1:30",
+            "--file-access-retries=5",
+            "--retry-sleep=exp=1:20",
             "--continue",
             "--no-overwrites",
             "--ignore-errors",
+            "--http-chunk-size=10M",
+            "--buffer-size=16M",
             f"--output={output_dir}/%(playlist_index)03d - %(title).100s.%(ext)s",
         ])
+
+        # If aria2c is installed, utilize aria2c for turbo multi-connection speeds
+        if shutil.which("aria2c"):
+            cmd.extend([
+                "--downloader", "aria2c",
+                "--downloader-args", "aria2c:-s 16 -x 16 -k 1M -j 16"
+            ])
 
         if req.throttled_rate:
             cmd.append(f"--throttled-rate={req.throttled_rate}")
