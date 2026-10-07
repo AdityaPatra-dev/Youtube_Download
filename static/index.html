@@ -118,6 +118,8 @@
             <div class="preview-metadata-row">
               <span class="meta-pill" id="preview-channel">Channel Name</span>
               <span class="meta-pill" id="preview-count">0 Videos</span>
+              <span class="meta-pill hidden" id="preview-duration">Duration</span>
+              <span class="meta-pill hidden" id="preview-chapters">Chapters</span>
             </div>
 
             <!-- Expandable list of videos -->
@@ -187,7 +189,7 @@
                 <span class="format-badge-pill" id="fmt-badge">Universal</span>
                 <h4 id="fmt-title">MP4 (H.264 / AAC)</h4>
               </div>
-              <div class="fmt-size-highlight" id="fmt-size-est">Estimated Size: ~127 MB</div>
+              <div class="fmt-size-highlight" id="fmt-size-est">Estimated Size: Awaiting URL inspection</div>
             </div>
             <p class="format-card-desc" id="fmt-desc">
               Most widely compatible video format. Plays on every phone, tablet, Smart TV, browser, and video editing software like Premiere Pro and DaVinci Resolve.
@@ -260,6 +262,10 @@
                 <label class="custom-checkbox">
                   <input type="checkbox" id="chk-resume" checked />
                   <span>Enable Auto-Resume Archive (Skips already downloaded videos)</span>
+                </label>
+                <label class="custom-checkbox">
+                  <input type="checkbox" id="chk-chapters" checked />
+                  <span>Embed YouTube Timestamps & Chapter Markers (Playable in VLC, MPV, etc.)</span>
                 </label>
                 <label class="custom-checkbox">
                   <input type="checkbox" id="chk-subs" />

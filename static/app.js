@@ -188,22 +188,42 @@ function formatBytes(bytes) {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
+function formatDuration(sec) {
+  if (!sec || sec <= 0) return "0s";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 function calculateEstimatedSize(containerVal, qualityVal) {
   const cMeta = CONTAINER_METADATA[containerVal] || CONTAINER_METADATA["mp4-h264"];
   const isAudio = cMeta.category === "audio" || qualityVal === "audio";
   const totalItems = (currentMeta && currentMeta.total_items) ? currentMeta.total_items : 1;
 
+  if (!currentMeta) {
+    return {
+      singleFormatted: "Awaiting URL inspection",
+      totalFormatted: "Awaiting URL inspection",
+      totalItems: 1,
+      isAudio: isAudio,
+    };
+  }
+
   if (isAudio) {
-    let baseAudioBytes = 0;
-    if (currentMeta && currentMeta.audio_info && currentMeta.audio_info.size_bytes) {
-      baseAudioBytes = currentMeta.audio_info.size_bytes;
-    } else if (currentMeta && currentMeta.duration) {
-      baseAudioBytes = Math.round((192 * 1000 / 8) * currentMeta.duration);
+    let singleBytes = 0;
+    if (currentMeta.audio_info && currentMeta.audio_info.codec_sizes && currentMeta.audio_info.codec_sizes[containerVal]) {
+      singleBytes = currentMeta.audio_info.codec_sizes[containerVal];
+    } else if (currentMeta.audio_info && currentMeta.audio_info.size_bytes) {
+      singleBytes = Math.round(currentMeta.audio_info.size_bytes * (cMeta.audioMultiplier || 1.0));
+    } else if (currentMeta.duration) {
+      const rate = containerVal === "wav" ? 1411 : (containerVal === "flac" ? 900 : (containerVal === "mp3" ? 320 : 160));
+      singleBytes = Math.round((rate * 1000 / 8) * currentMeta.duration);
     } else {
-      baseAudioBytes = 8.5 * 1024 * 1024;
+      singleBytes = 15 * 1024 * 1024;
     }
-    const mult = cMeta.audioMultiplier || 1.0;
-    const singleBytes = Math.round(baseAudioBytes * mult);
     const totalBytes = singleBytes * totalItems;
     return {
       singleFormatted: `~${formatBytes(singleBytes)}`,
@@ -213,28 +233,33 @@ function calculateEstimatedSize(containerVal, qualityVal) {
     };
   }
 
-  // Video calculation
-  let baseVideoBytes = 0;
-  if (currentMeta && currentMeta.available_resolutions && currentMeta.available_resolutions.length > 0) {
+  // Video calculation using exact stream sizes from inspection
+  let singleBytes = 0;
+  if (currentMeta.available_resolutions && currentMeta.available_resolutions.length > 0) {
     const numericQ = parseInt(qualityVal) || 1080;
     let found = currentMeta.available_resolutions.find(r => r.height === numericQ);
     if (!found) {
       found = currentMeta.available_resolutions[0];
     }
-    baseVideoBytes = found ? found.size_bytes : (60 * 1024 * 1024);
-  } else {
-    const numericQ = parseInt(qualityVal) || 1080;
-    if (numericQ >= 2160) baseVideoBytes = 380 * 1024 * 1024;
-    else if (numericQ >= 1440) baseVideoBytes = 180 * 1024 * 1024;
-    else if (numericQ >= 1080) baseVideoBytes = 95 * 1024 * 1024;
-    else if (numericQ >= 720) baseVideoBytes = 45 * 1024 * 1024;
-    else baseVideoBytes = 25 * 1024 * 1024;
+    if (found.codec_sizes && found.codec_sizes[containerVal]) {
+      singleBytes = found.codec_sizes[containerVal];
+    } else if (found.size_bytes) {
+      singleBytes = Math.round(found.size_bytes * (cMeta.sizeMultiplier || 1.0));
+    }
   }
 
-  const mult = cMeta.sizeMultiplier || 1.0;
-  const singleBytes = Math.round(baseVideoBytes * mult);
-  const totalBytes = singleBytes * totalItems;
+  if (!singleBytes && currentMeta.duration) {
+    const numericQ = parseInt(qualityVal) || 1080;
+    let rateKbps = 2500;
+    if (numericQ >= 2160) rateKbps = containerVal === 'mp4-av1' ? 15000 : 25000;
+    else if (numericQ >= 1440) rateKbps = containerVal === 'mp4-av1' ? 5500 : 12000;
+    else if (numericQ >= 1080) rateKbps = containerVal === 'mp4-av1' ? 1800 : 3500;
+    else if (numericQ >= 720) rateKbps = containerVal === 'mp4-av1' ? 900 : 1800;
+    else rateKbps = 600;
+    singleBytes = Math.round((rateKbps * 1000 / 8) * currentMeta.duration);
+  }
 
+  const totalBytes = (singleBytes || 100 * 1024 * 1024) * totalItems;
   return {
     singleFormatted: `~${formatBytes(singleBytes)}`,
     totalFormatted: `~${formatBytes(totalBytes)}`,
@@ -263,12 +288,43 @@ function updateFormatInspectorCard(containerVal) {
 
   if (sizeEl) {
     const est = calculateEstimatedSize(val, selectedQuality);
-    if (est.totalItems > 1) {
-      sizeEl.textContent = `Estimated Size: ${est.totalFormatted} (${est.totalItems} items)`;
+    if (!currentMeta) {
+      sizeEl.textContent = "Estimated Size: Awaiting URL inspection (click Fetch Details)";
+    } else if (est.totalItems > 1) {
+      sizeEl.textContent = `Estimated Size: ${est.totalFormatted} (${est.totalItems} videos)`;
     } else {
       sizeEl.textContent = `Estimated Size: ${est.singleFormatted}`;
     }
   }
+
+  refreshPillsSizes();
+}
+
+function refreshPillsSizes() {
+  if (!currentMeta || !currentMeta.available_resolutions) return;
+  const containerSelect = document.getElementById("container-select");
+  const curCont = containerSelect ? containerSelect.value : "mp4-h264";
+
+  const pills = document.querySelectorAll(".quality-option");
+  pills.forEach((p) => {
+    const qStr = p.getAttribute("data-quality");
+    const sizeSpan = p.querySelector(".q-size");
+    if (!sizeSpan) return;
+
+    if (qStr === "audio") {
+      const audioSz = currentMeta.audio_info?.codec_sizes_formatted?.[curCont]
+        || (currentMeta.is_playlist ? currentMeta.audio_info?.playlist_size_formatted : currentMeta.audio_info?.size_formatted);
+      if (audioSz) sizeSpan.textContent = audioSz;
+    } else {
+      const numH = parseInt(qStr);
+      const resItem = currentMeta.available_resolutions.find(r => r.height === numH);
+      if (resItem) {
+        const sz = resItem.codec_sizes_formatted?.[curCont]
+          || (currentMeta.is_playlist ? resItem.playlist_size_formatted : resItem.size_formatted);
+        if (sz) sizeSpan.textContent = sz;
+      }
+    }
+  });
 }
 
 function initContainerInspector() {
@@ -366,13 +422,18 @@ function renderAvailableResolutions(meta) {
   const defaultRes = resolutions.find(r => r.height === 1080) || resolutions[0];
   selectedQuality = `${defaultRes.height}p`;
 
+  const containerSelect = document.getElementById("container-select");
+  const curCont = containerSelect ? containerSelect.value : "mp4-h264";
+
   resolutions.forEach((res) => {
     const box = document.createElement("div");
     box.className = `quality-option ${res.height === defaultRes.height ? "active" : ""}`;
     box.setAttribute("data-quality", `${res.height}p`);
     box.onclick = () => selectQuality(`${res.height}p`);
 
-    const sizeDisplay = meta.is_playlist ? res.playlist_size_formatted : res.size_formatted;
+    const sizeDisplay = (res.codec_sizes_formatted && res.codec_sizes_formatted[curCont])
+      ? res.codec_sizes_formatted[curCont]
+      : (meta.is_playlist ? res.playlist_size_formatted : res.size_formatted);
 
     box.innerHTML = `
       ${res.is_max ? '<span class="q-max-badge">MAX</span>' : ''}
@@ -385,7 +446,8 @@ function renderAvailableResolutions(meta) {
 
   // Render Audio Only option
   const audioInfo = meta.audio_info || {};
-  const audioSizeDisplay = meta.is_playlist ? (audioInfo.playlist_size_formatted || "~15 MB") : (audioInfo.size_formatted || "~8 MB");
+  const audioSizeDisplay = (audioInfo.codec_sizes_formatted && audioInfo.codec_sizes_formatted[curCont])
+    || (meta.is_playlist ? (audioInfo.playlist_size_formatted || "~15 MB") : (audioInfo.size_formatted || "~8 MB"));
 
   const audioBox = document.createElement("div");
   audioBox.className = "quality-option";
@@ -399,8 +461,7 @@ function renderAvailableResolutions(meta) {
   `;
   container.appendChild(audioBox);
 
-  const containerSelect = document.getElementById("container-select");
-  updateFormatInspectorCard(containerSelect ? containerSelect.value : "mp4-h264");
+  updateFormatInspectorCard(curCont);
 }
 
 function renderFallbackResolutions(meta) {
@@ -525,6 +586,26 @@ function renderMediaPreview(meta) {
   document.getElementById("preview-count").textContent = `${meta.total_items} Video${meta.total_items === 1 ? "" : "s"}`;
   document.getElementById("preview-type-badge").textContent = meta.is_playlist ? "Playlist" : "Single Video";
 
+  const durEl = document.getElementById("preview-duration");
+  if (durEl) {
+    if (meta.duration && meta.duration > 0) {
+      durEl.textContent = `⏱️ ${formatDuration(meta.duration)}`;
+      durEl.classList.remove("hidden");
+    } else {
+      durEl.classList.add("hidden");
+    }
+  }
+
+  const chaptEl = document.getElementById("preview-chapters");
+  if (chaptEl) {
+    if (meta.chapters_count && meta.chapters_count > 0) {
+      chaptEl.textContent = `📑 ${meta.chapters_count} Chapters / Timestamps`;
+      chaptEl.classList.remove("hidden");
+    } else {
+      chaptEl.classList.add("hidden");
+    }
+  }
+
   const thumbImg = document.getElementById("preview-thumb");
   if (meta.thumbnail) {
     thumbImg.src = meta.thumbnail;
@@ -575,6 +656,7 @@ async function startDownload() {
   const browserCookies = document.getElementById("browser-cookies").value || null;
   const embedSubs = document.getElementById("chk-subs").checked;
   const embedThumb = document.getElementById("chk-thumb").checked;
+  const embedChapters = document.getElementById("chk-chapters") ? document.getElementById("chk-chapters").checked : true;
   const autoResume = document.getElementById("chk-resume").checked;
 
   const payload = {
@@ -591,6 +673,8 @@ async function startDownload() {
     cookies_from_browser: browserCookies,
     embed_subs: embedSubs,
     embed_thumbnail: embedThumb,
+    embed_chapters: embedChapters,
+    embed_metadata: true,
     no_archive: !autoResume,
   };
 

@@ -498,7 +498,9 @@ class DownloadManager:
         if self.embed_thumbnail:
             cmd.append("--embed-thumbnail")
         if self.embed_metadata:
-            cmd.append("--embed-metadata")
+            cmd.extend(["--embed-metadata", "--embed-chapters"])
+        else:
+            cmd.append("--embed-chapters")
 
         # Any extra user-supplied arguments
         if self.extra_args:
