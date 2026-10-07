@@ -31,6 +31,7 @@ try:
         QUALITY_PRESETS,
         BatchJob,
         check_ffmpeg,
+        detect_available_browsers,
         fetch_playlist_info,
         find_ytdlp,
         salvage_partial_downloads,
@@ -42,6 +43,7 @@ except ImportError:
         QUALITY_PRESETS,
         BatchJob,
         check_ffmpeg,
+        detect_available_browsers,
         fetch_playlist_info,
         find_ytdlp,
         salvage_partial_downloads,
@@ -196,8 +198,10 @@ async def get_system_status():
         "ytdlp_version": ytdlp_ver,
         "ffmpeg_available": ffmpeg_ready,
         "aria2c_available": bool(shutil.which("aria2c")),
+        "node_available": bool(shutil.which("node")),
         "os": platform.system(),
         "python_version": platform.python_version(),
+        "detected_browsers": detect_available_browsers(),
     }
 
 
@@ -367,12 +371,19 @@ async def inspect_url(req: InspectRequest):
     try:
         is_playlist_url = "playlist?list=" in req.url or "/playlist" in req.url
         base_cmd = list(ytdlp_cmd)
+
+        cookie_args = []
         if req.cookies_browser:
-            base_cmd.extend(["--cookies-from-browser", req.cookies_browser])
+            if req.cookies_browser.startswith("file:"):
+                c_path = Path(req.cookies_browser.split("file:", 1)[1]).resolve()
+                if c_path.is_file():
+                    cookie_args = ["--cookies", str(c_path)]
+            else:
+                cookie_args = ["--cookies-from-browser", req.cookies_browser]
 
         if not is_playlist_url:
             # Single video direct deep inspection
-            cmd = base_cmd + ["-J", "--no-warnings", "--no-playlist", req.url]
+            cmd = base_cmd + cookie_args + ["-J", "--no-warnings", "--no-playlist", req.url]
             proc = await asyncio.to_thread(
                 subprocess.run,
                 cmd,
@@ -382,6 +393,21 @@ async def inspect_url(req: InspectRequest):
                 encoding="utf-8",
                 errors="replace",
             )
+            # Automatic fallback: if cookies failed, retry without cookies
+            if proc.returncode != 0 and cookie_args:
+                err_msg = proc.stderr.strip()
+                if any(term in err_msg.lower() for term in ["cookie", "could not find", "database", "keyring", "sqlite", "unavailable"]):
+                    cmd_retry = base_cmd + ["-J", "--no-warnings", "--no-playlist", req.url]
+                    proc = await asyncio.to_thread(
+                        subprocess.run,
+                        cmd_retry,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+
             if proc.returncode != 0 and not proc.stdout.strip():
                 raise RuntimeError(proc.stderr.strip() or "Failed to inspect video")
 
@@ -411,7 +437,7 @@ async def inspect_url(req: InspectRequest):
             }
 
         # Playlist inspection
-        cmd = base_cmd + ["--flat-playlist", "-J", "--ignore-errors", "--no-warnings", req.url]
+        cmd = base_cmd + cookie_args + ["--flat-playlist", "-J", "--ignore-errors", "--no-warnings", req.url]
         proc = await asyncio.to_thread(
             subprocess.run,
             cmd,
@@ -421,6 +447,20 @@ async def inspect_url(req: InspectRequest):
             encoding="utf-8",
             errors="replace",
         )
+        if proc.returncode != 0 and cookie_args:
+            err_msg = proc.stderr.strip()
+            if any(term in err_msg.lower() for term in ["cookie", "could not find", "database", "keyring", "sqlite", "unavailable"]):
+                cmd_retry = base_cmd + ["--flat-playlist", "-J", "--ignore-errors", "--no-warnings", req.url]
+                proc = await asyncio.to_thread(
+                    subprocess.run,
+                    cmd_retry,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+
         if proc.returncode != 0 and not proc.stdout.strip():
             raise RuntimeError(proc.stderr.strip() or "Failed to inspect playlist")
 
@@ -642,7 +682,7 @@ def _run_download_orchestrator(
             "--ignore-errors",
             "--http-chunk-size=10M",
             "--buffer-size=16M",
-            f"--output={output_dir}/%(playlist_index)03d - %(title).100s.%(ext)s",
+            f"--output={output_dir}/%(playlist_index)03d - %(title).100s.%(ext)s" if is_playlist else f"--output={output_dir}/%(title).100s.%(ext)s",
         ])
 
         # If aria2c is installed, utilize aria2c for turbo multi-connection speeds
@@ -657,7 +697,12 @@ def _run_download_orchestrator(
         if archive_path:
             cmd.append(f"--download-archive={archive_path}")
         if req.cookies_from_browser:
-            cmd.append(f"--cookies-from-browser={req.cookies_from_browser}")
+            if req.cookies_from_browser.startswith("file:"):
+                c_path = Path(req.cookies_from_browser.split("file:", 1)[1]).resolve()
+                if c_path.is_file():
+                    cmd.append(f"--cookies={c_path}")
+            else:
+                cmd.append(f"--cookies-from-browser={req.cookies_from_browser}")
 
         # Quality / Container / Encoding
         audio_containers = ("mp3", "m4a", "opus", "flac", "wav")
@@ -721,6 +766,7 @@ def _run_download_orchestrator(
         cmd.append(req.url)
 
         start_time = time.time()
+        log_lines = []
         with open(log_file, "w", encoding="utf-8", errors="replace") as f_log:
             try:
                 proc = subprocess.Popen(
@@ -737,8 +783,9 @@ def _run_download_orchestrator(
                 # Stream lines into log file & broadcast important lines
                 for line in proc.stdout:
                     f_log.write(line)
+                    log_lines.append(line)
                     cleaned = line.strip()
-                    if cleaned and ("[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned):
+                    if cleaned and ("[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned):
                         state.broadcast_log(f"[B#{batch_num}] {cleaned}")
 
                 returncode = proc.wait()
@@ -748,6 +795,40 @@ def _run_download_orchestrator(
             finally:
                 with state.lock:
                     state.active_processes.pop(proc, None)
+
+        # Automatic fallback: if cookies caused failure, retry without cookies
+        if returncode != 0 and req.cookies_from_browser and not state.cancelled:
+            err_text = "".join(log_lines[-25:])
+            if any(term in err_text.lower() for term in ["cookie", "could not find", "database", "keyring", "sqlite", "unavailable"]):
+                state.broadcast_log(f"[B#{batch_num}] Warning: Cookies from '{req.cookies_from_browser}' failed. Retrying download without cookies...", level="warning")
+                retry_cmd = [a for a in cmd if not (a.startswith("--cookies") or a == "--cookies-from-browser" or a == f"--cookies-from-browser={req.cookies_from_browser}")]
+                with open(log_file, "a", encoding="utf-8", errors="replace") as f_log:
+                    f_log.write("\n--- [System] Retrying download without cookies ---\n")
+                    try:
+                        proc = subprocess.Popen(
+                            retry_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            bufsize=1,
+                            universal_newlines=True,
+                        )
+                        with state.lock:
+                            state.active_processes[proc] = batch_dict
+
+                        for line in proc.stdout:
+                            f_log.write(line)
+                            cleaned = line.strip()
+                            if cleaned and ("[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned):
+                                state.broadcast_log(f"[B#{batch_num}] {cleaned}")
+
+                        returncode = proc.wait()
+                    except Exception as e:
+                        returncode = -1
+                        state.broadcast_log(f"Batch #{batch_num} retry error: {e}", level="error")
+                    finally:
+                        with state.lock:
+                            state.active_processes.pop(proc, None)
 
         duration = time.time() - start_time
         batch_dict["duration"] = duration

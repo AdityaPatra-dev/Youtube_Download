@@ -169,6 +169,19 @@ async function initSystemChecks() {
       const ariaChip = document.getElementById("aria2c-chip");
       if (ariaChip) ariaChip.classList.remove("hidden");
     }
+
+    if (data.detected_browsers && data.detected_browsers.length > 0) {
+      const select = document.getElementById("browser-cookies");
+      if (select) {
+        select.innerHTML = '<option value="">None (Public videos — Default)</option>';
+        data.detected_browsers.forEach(b => {
+          const opt = document.createElement("option");
+          opt.value = b.id;
+          opt.textContent = b.name;
+          select.appendChild(opt);
+        });
+      }
+    }
   } catch (e) {
     console.error("System check error", e);
   }
@@ -553,11 +566,13 @@ async function inspectUrl() {
   spinner.classList.remove("hidden");
   label.textContent = "Inspecting...";
 
+  const cookieChoice = document.getElementById("browser-cookies")?.value || null;
+
   try {
     const res = await fetch("/api/inspect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: url }),
+      body: JSON.stringify({ url: url, cookies_browser: cookieChoice }),
     });
 
     const data = await res.json();

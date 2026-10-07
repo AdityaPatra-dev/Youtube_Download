@@ -17,6 +17,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import glob
 import platform
 import re
 import shutil
@@ -26,7 +27,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # ==============================================================================
@@ -111,23 +112,115 @@ QUALITY_PRESETS = {
 # Prerequisite Checks
 # ==============================================================================
 
+def get_js_runtime_args() -> List[str]:
+    """Returns arguments for YouTube JavaScript challenge solving (Node.js/Deno) to prevent HTTP 403 Forbidden."""
+    args = []
+    if shutil.which("node"):
+        args.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
+    elif shutil.which("deno"):
+        args.extend(["--js-runtimes", "deno", "--remote-components", "ejs:github"])
+    return args
+
+
+def detect_available_browsers() -> List[Dict[str, Any]]:
+    """Detects available web browsers with cookie databases on the host system."""
+    home = Path.home()
+    system = platform.system()
+    candidates = [
+        ("chrome", "Google Chrome"),
+        ("firefox", "Mozilla Firefox"),
+        ("brave", "Brave Browser"),
+        ("edge", "Microsoft Edge"),
+        ("chromium", "Chromium"),
+        ("opera", "Opera"),
+        ("vivaldi", "Vivaldi"),
+    ]
+    results = []
+
+    # Check for cookies.txt file in project root or current working dir
+    project_cookies = Path.cwd() / "cookies.txt"
+    if project_cookies.is_file():
+        results.append({
+            "id": "file:cookies.txt",
+            "name": "cookies.txt (Found in project folder)",
+            "has_cookies": True,
+            "recommended": True,
+        })
+
+    for b_id, b_name in candidates:
+        has_cookies = False
+        is_installed = bool(shutil.which(b_id) or shutil.which(f"{b_id}-browser") or shutil.which(f"google-{b_id}"))
+
+        if system == "Linux":
+            patterns = {
+                "chrome": [str(home / ".config/google-chrome/**/Cookies"), str(home / ".config/chromium/**/Cookies")],
+                "chromium": [str(home / ".config/chromium/**/Cookies")],
+                "firefox": [str(home / ".mozilla/firefox/**/*.sqlite"), str(home / "snap/firefox/common/.mozilla/firefox/**/*.sqlite")],
+                "brave": [str(home / ".config/BraveSoftware/Brave-Browser/**/Cookies")],
+                "edge": [str(home / ".config/microsoft-edge/**/Cookies")],
+                "opera": [str(home / ".config/opera/**/Cookies")],
+                "vivaldi": [str(home / ".config/vivaldi/**/Cookies")],
+            }
+        elif system == "Darwin":
+            patterns = {
+                "chrome": [str(home / "Library/Application Support/Google/Chrome/**/Cookies")],
+                "firefox": [str(home / "Library/Application Support/Firefox/Profiles/**/*.sqlite")],
+                "brave": [str(home / "Library/Application Support/BraveSoftware/Brave-Browser/**/Cookies")],
+                "edge": [str(home / "Library/Application Support/Microsoft Edge/**/Cookies")],
+                "safari": [str(home / "Library/Containers/com.apple.Safari/Data/Library/Cookies/*.binarycookies")],
+            }
+        else:  # Windows
+            appdata = os.environ.get("APPDATA", "")
+            localappdata = os.environ.get("LOCALAPPDATA", "")
+            patterns = {
+                "chrome": [f"{localappdata}/Google/Chrome/User Data/**/Cookies"],
+                "firefox": [f"{appdata}/Mozilla/Firefox/Profiles/**/*.sqlite"],
+                "brave": [f"{localappdata}/BraveSoftware/Brave-Browser/User Data/**/Cookies"],
+                "edge": [f"{localappdata}/Microsoft/Edge/User Data/**/Cookies"],
+            }
+
+        file_list = []
+        for p in patterns.get(b_id, []):
+            try:
+                file_list.extend(glob.glob(p, recursive=True))
+            except Exception:
+                pass
+
+        if file_list:
+            has_cookies = True
+            is_installed = True
+
+        if is_installed or has_cookies:
+            results.append({
+                "id": b_id,
+                "name": f"{b_name}" + (" (Cookies detected)" if has_cookies else " (Installed, no active cookies)"),
+                "has_cookies": has_cookies,
+                "recommended": False,
+            })
+
+    return results
+
+
 def find_ytdlp(custom_path: Optional[str] = None) -> List[str]:
-    """Finds yt-dlp executable or python module command."""
+    """Finds yt-dlp executable or python module command, equipped with JS challenge solvers."""
+    base_cmd = None
     if custom_path:
         p = Path(custom_path).expanduser().resolve()
         if p.is_file() and os.access(p, os.X_OK):
-            return [str(p)]
-        if shutil.which(custom_path):
-            return [custom_path]
-        raise FileNotFoundError(f"Specified yt-dlp path '{custom_path}' was not found or is not executable.")
+            base_cmd = [str(p)]
+        elif shutil.which(custom_path):
+            base_cmd = [custom_path]
+        else:
+            raise FileNotFoundError(f"Specified yt-dlp path '{custom_path}' was not found or is not executable.")
 
     # 1. Check if yt-dlp is in PATH
-    which_path = shutil.which("yt-dlp")
-    if which_path:
-        return [which_path]
+    if not base_cmd:
+        which_path = shutil.which("yt-dlp")
+        if which_path:
+            base_cmd = [which_path]
 
     # 2. Check if yt-dlp.exe is in current directory or C:\yt-dlp on Windows
-    if platform.system() == "Windows":
+    if not base_cmd and platform.system() == "Windows":
         common_paths = [
             Path.cwd() / "yt-dlp.exe",
             Path("C:/yt-dlp/yt-dlp.exe"),
@@ -135,34 +228,39 @@ def find_ytdlp(custom_path: Optional[str] = None) -> List[str]:
         ]
         for cp in common_paths:
             if cp.is_file():
-                return [str(cp)]
+                base_cmd = [str(cp)]
+                break
 
     # 3. Check if installed in current python environment
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "yt_dlp", "--version"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=5,
-        )
-        if proc.returncode == 0:
-            return [sys.executable, "-m", "yt_dlp"]
-    except Exception:
-        pass
+    if not base_cmd:
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "yt_dlp", "--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+            )
+            if proc.returncode == 0:
+                base_cmd = [sys.executable, "-m", "yt_dlp"]
+        except Exception:
+            pass
 
-    # Not found
-    msg = (
-        f"{Colors.error('yt-dlp was not found on your system!')}\n\n"
-        f"  Please install yt-dlp using one of the following methods:\n"
-        f"    • Python pip:  {Colors.paint('pip install yt-dlp', Colors.GREEN)}\n"
-        f"    • Standalone:  Download binary from https://github.com/yt-dlp/yt-dlp/releases\n"
-        f"    • Windows:     {Colors.paint('winget install yt-dlp', Colors.GREEN)}\n"
-        f"    • macOS:       {Colors.paint('brew install yt-dlp', Colors.GREEN)}\n"
-        f"    • Linux:       Use your package manager or install via pip.\n\n"
-        f"  Or pass --yt-dlp-path=/path/to/yt-dlp"
-    )
-    raise RuntimeError(msg)
+    if not base_cmd:
+        msg = (
+            f"{Colors.error('yt-dlp was not found on your system!')}\n\n"
+            f"  Please install yt-dlp using one of the following methods:\n"
+            f"    • Python pip:  {Colors.paint('pip install yt-dlp', Colors.GREEN)}\n"
+            f"    • Standalone:  Download binary from https://github.com/yt-dlp/yt-dlp/releases\n"
+            f"    • Windows:     {Colors.paint('winget install yt-dlp', Colors.GREEN)}\n"
+            f"    • macOS:       {Colors.paint('brew install yt-dlp', Colors.GREEN)}\n"
+            f"    • Linux:       Use your package manager or install via pip.\n\n"
+            f"  Or pass --yt-dlp-path=/path/to/yt-dlp"
+        )
+        raise RuntimeError(msg)
+
+    # Attach JS challenge solver runtimes (Node.js / Deno) to guarantee no 403 Forbidden
+    return base_cmd + get_js_runtime_args()
 
 
 def check_ffmpeg(custom_path: Optional[str] = None) -> bool:
@@ -276,10 +374,18 @@ def fetch_playlist_info(
         "--no-warnings",
     ]
 
+    cookie_args = []
     if cookies_file:
-        cmd.extend(["--cookies", str(Path(cookies_file).expanduser().resolve())])
+        cookie_args = ["--cookies", str(Path(cookies_file).expanduser().resolve())]
     elif cookies_browser:
-        cmd.extend(["--cookies-from-browser", cookies_browser])
+        if cookies_browser.startswith("file:"):
+            c_path = Path(cookies_browser.split("file:", 1)[1]).expanduser().resolve()
+            if c_path.is_file():
+                cookie_args = ["--cookies", str(c_path)]
+        else:
+            cookie_args = ["--cookies-from-browser", cookies_browser]
+
+    cmd.extend(cookie_args)
 
     if extra_args:
         cmd.extend(extra_args)
@@ -298,6 +404,24 @@ def fetch_playlist_info(
         )
     except Exception as e:
         raise RuntimeError(f"Failed to execute yt-dlp: {e}")
+
+    # If cookies failed, retry once without cookies
+    if proc.returncode != 0 and cookie_args:
+        err_msg = proc.stderr.strip()
+        if any(term in err_msg.lower() for term in ["cookie", "could not find", "database", "keyring", "sqlite", "unavailable"]):
+            retry_cmd = [a for a in cmd if a not in cookie_args and not a.startswith("--cookies")]
+            try:
+                proc = subprocess.run(
+                    retry_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+            except Exception:
+                pass
 
     if proc.returncode != 0 and not proc.stdout.strip():
         err_msg = proc.stderr.strip() or "Unknown error"
@@ -445,7 +569,7 @@ class DownloadManager:
             "--ignore-errors",
             "--http-chunk-size=10M",
             "--buffer-size=16M",
-            f"--output={self.output_dir / self.output_template}",
+            f"--output={self.output_dir / (self.output_template if job.is_playlist else '%(title).100s.%(ext)s')}",
         ])
 
         # If aria2c is installed, utilize aria2c for turbo multi-connection speeds
@@ -466,7 +590,12 @@ class DownloadManager:
         if self.cookies_file:
             cmd.append(f"--cookies={Path(self.cookies_file).expanduser().resolve()}")
         elif self.cookies_browser:
-            cmd.append(f"--cookies-from-browser={self.cookies_browser}")
+            if self.cookies_browser.startswith("file:"):
+                c_path = Path(self.cookies_browser.split("file:", 1)[1]).expanduser().resolve()
+                if c_path.is_file():
+                    cmd.append(f"--cookies={c_path}")
+            else:
+                cmd.append(f"--cookies-from-browser={self.cookies_browser}")
 
         # Format / Audio options
         if self.audio_only:
@@ -549,6 +678,35 @@ class DownloadManager:
             finally:
                 with self.lock:
                     self.active_processes.pop(proc, None)
+
+        # Automatic fallback: if cookies caused failure, retry without cookies
+        if returncode != 0 and (self.cookies_browser or self.cookies_file) and not self.cancelled:
+            err_summary = self._extract_error_summary(job.log_path)
+            if any(term in err_summary.lower() for term in ["cookie", "could not find", "database", "keyring", "sqlite", "unavailable"]):
+                print(Colors.warning(f"Warning: Cookies failed for {job.label} ({err_summary}). Retrying download without cookies..."))
+                retry_cmd = [a for a in cmd if not (a.startswith("--cookies") or a == "--cookies-from-browser" or (self.cookies_browser and a == self.cookies_browser))]
+                with open(job.log_path, "a", encoding="utf-8", errors="replace") as log_file:
+                    log_file.write("\n--- [System] Retrying download without cookies ---\n")
+                    try:
+                        proc = subprocess.Popen(
+                            retry_cmd,
+                            stdout=log_file,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            bufsize=1,
+                        )
+                        with self.lock:
+                            if self.cancelled:
+                                proc.terminate()
+                                job.status = "CANCELLED"
+                                return job
+                            self.active_processes[proc] = job
+                        returncode = proc.wait()
+                    except Exception as e:
+                        returncode = -1
+                    finally:
+                        with self.lock:
+                            self.active_processes.pop(proc, None)
 
         job.duration = time.time() - start_time
         job.exit_code = returncode
