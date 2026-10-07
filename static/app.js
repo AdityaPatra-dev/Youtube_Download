@@ -691,6 +691,9 @@ async function startDownload() {
     embed_chapters: embedChapters,
     embed_metadata: true,
     no_archive: !autoResume,
+    title: currentMeta ? currentMeta.title : null,
+    is_playlist: currentMeta ? currentMeta.is_playlist : null,
+    total_items: currentMeta ? currentMeta.total_items : null,
   };
 
   try {

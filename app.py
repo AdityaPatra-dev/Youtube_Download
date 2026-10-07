@@ -12,6 +12,7 @@ import json
 import mimetypes
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -145,6 +146,9 @@ class DownloadRequest(BaseModel):
     embed_thumbnail: bool = False
     embed_chapters: bool = True
     embed_metadata: bool = True
+    title: Optional[str] = None
+    is_playlist: Optional[bool] = None
+    total_items: Optional[int] = None
 
 
 # ==============================================================================
@@ -569,30 +573,50 @@ async def start_download_job(req: DownloadRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"yt-dlp is not available: {e}")
 
-    # Inspect total items
-    try:
-        meta = await asyncio.to_thread(
-            fetch_playlist_info,
-            ytdlp_cmd=ytdlp_cmd,
-            url=req.url,
-            cookies_browser=req.cookies_from_browser,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not inspect playlist: {e}")
+    # Fast path: check if URL is single video or if metadata was already provided
+    url_has_playlist = "playlist?list=" in req.url or "/playlist" in req.url
+    is_playlist = req.is_playlist if req.is_playlist is not None else url_has_playlist
+    title = req.title or "YouTube Media"
+    total_items = req.total_items or 1
 
-    # Determine chunks
-    if not meta.is_playlist or meta.total_items <= 1:
+    if not is_playlist:
+        # Instant single video dispatch - no slow 20-min re-inspection!
         chunks = [(1, 1)]
-    else:
+    elif req.total_items and req.total_items > 0:
+        # Fast path: playlist was already inspected in UI
+        total_items = req.total_items
         start_idx = max(1, req.start)
-        end_idx = min(meta.total_items, req.end) if req.end else meta.total_items
+        end_idx = min(total_items, req.end) if req.end else total_items
         if start_idx > end_idx:
             raise HTTPException(status_code=400, detail=f"Start index ({start_idx}) cannot exceed end index ({end_idx})")
-
         chunks = []
         for i in range(start_idx, end_idx + 1, req.chunk_size):
             chunk_end = min(i + req.chunk_size - 1, end_idx)
             chunks.append((i, chunk_end))
+    else:
+        # Fast playlist inspection only if total items unknown
+        try:
+            meta = await asyncio.to_thread(
+                fetch_playlist_info,
+                ytdlp_cmd=ytdlp_cmd,
+                url=req.url,
+                cookies_browser=req.cookies_from_browser,
+            )
+            title = meta.title
+            is_playlist = meta.is_playlist
+            total_items = meta.total_items
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not inspect playlist: {e}")
+
+        if not is_playlist or total_items <= 1:
+            chunks = [(1, 1)]
+        else:
+            start_idx = max(1, req.start)
+            end_idx = min(total_items, req.end) if req.end else total_items
+            chunks = []
+            for i in range(start_idx, end_idx + 1, req.chunk_size):
+                chunk_end = min(i + req.chunk_size - 1, end_idx)
+                chunks.append((i, chunk_end))
 
     target_output_dir = Path(req.output_dir).expanduser().resolve()
 
@@ -601,7 +625,7 @@ async def start_download_job(req: DownloadRequest):
         state.active = True
         state.status = "RUNNING"
         state.cancelled = False
-        state.title = meta.title
+        state.title = title
         state.url = req.url
         state.output_dir = target_output_dir
         state.total_batches = len(chunks)
@@ -618,20 +642,20 @@ async def start_download_job(req: DownloadRequest):
             for idx, (s, e) in enumerate(chunks)
         ]
 
-    state.broadcast_log(f"Starting download: '{meta.title}' ({len(chunks)} batches, {req.workers} workers)", level="info")
+    state.broadcast_log(f"Starting download: '{title}' ({len(chunks)} batch{'es' if len(chunks) > 1 else ''}, {req.workers} workers)", level="info")
 
     # Launch background thread
     threading.Thread(
         target=_run_download_orchestrator,
-        args=(req, chunks, meta.is_playlist, ytdlp_cmd),
+        args=(req, chunks, is_playlist, ytdlp_cmd),
         daemon=True,
     ).start()
 
     return {
         "status": "started",
-        "title": meta.title,
+        "title": title,
         "total_batches": len(chunks),
-        "total_items": meta.total_items,
+        "total_items": total_items,
     }
 
 
@@ -667,11 +691,14 @@ def _run_download_orchestrator(
         cmd = list(ytdlp_cmd)
         if is_playlist:
             cmd.extend([f"--playlist-start={s_idx}", f"--playlist-end={e_idx}"])
+        else:
+            cmd.append("--no-playlist")
 
         # Multi-fragment speed acceleration: 16 fragments for single video or 8 for playlists
         frag_count = 16 if not is_playlist or len(chunks) == 1 else max(req.concurrent_fragments, 8)
 
         cmd.extend([
+            "--newline",
             f"--concurrent-fragments={frag_count}",
             f"--retries={req.retries}",
             f"--fragment-retries={req.retries}",
@@ -767,6 +794,7 @@ def _run_download_orchestrator(
 
         start_time = time.time()
         log_lines = []
+        proc = None
         with open(log_file, "w", encoding="utf-8", errors="replace") as f_log:
             try:
                 proc = subprocess.Popen(
@@ -783,6 +811,7 @@ def _run_download_orchestrator(
                 # Stream lines into log file & broadcast important lines
                 for line in proc.stdout:
                     f_log.write(line)
+                    f_log.flush()
                     log_lines.append(line)
                     cleaned = line.strip()
                     if cleaned and ("[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned):
@@ -794,7 +823,8 @@ def _run_download_orchestrator(
                 state.broadcast_log(f"Batch #{batch_num} error: {e}", level="error")
             finally:
                 with state.lock:
-                    state.active_processes.pop(proc, None)
+                    if proc is not None:
+                        state.active_processes.pop(proc, None)
 
         # Automatic fallback: if cookies caused failure, retry without cookies
         if returncode != 0 and req.cookies_from_browser and not state.cancelled:
@@ -804,8 +834,9 @@ def _run_download_orchestrator(
                 retry_cmd = [a for a in cmd if not (a.startswith("--cookies") or a == "--cookies-from-browser" or a == f"--cookies-from-browser={req.cookies_from_browser}")]
                 with open(log_file, "a", encoding="utf-8", errors="replace") as f_log:
                     f_log.write("\n--- [System] Retrying download without cookies ---\n")
+                    retry_proc = None
                     try:
-                        proc = subprocess.Popen(
+                        retry_proc = subprocess.Popen(
                             retry_cmd,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT,
@@ -814,21 +845,23 @@ def _run_download_orchestrator(
                             universal_newlines=True,
                         )
                         with state.lock:
-                            state.active_processes[proc] = batch_dict
+                            state.active_processes[retry_proc] = batch_dict
 
-                        for line in proc.stdout:
+                        for line in retry_proc.stdout:
                             f_log.write(line)
+                            f_log.flush()
                             cleaned = line.strip()
                             if cleaned and ("[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned):
                                 state.broadcast_log(f"[B#{batch_num}] {cleaned}")
 
-                        returncode = proc.wait()
+                        returncode = retry_proc.wait()
                     except Exception as e:
                         returncode = -1
                         state.broadcast_log(f"Batch #{batch_num} retry error: {e}", level="error")
                     finally:
                         with state.lock:
-                            state.active_processes.pop(proc, None)
+                            if retry_proc is not None:
+                                state.active_processes.pop(retry_proc, None)
 
         duration = time.time() - start_time
         batch_dict["duration"] = duration
@@ -851,8 +884,15 @@ def _run_download_orchestrator(
     # Run in ThreadPool
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, req.workers)) as executor:
-        futures = [executor.submit(run_chunk, b) for b in state.batches]
-        concurrent.futures.wait(futures)
+        futures = {executor.submit(run_chunk, b): b for b in state.batches}
+        for future in concurrent.futures.as_completed(futures):
+            b_info = futures[future]
+            try:
+                future.result()
+            except Exception as exc:
+                state.broadcast_log(f"Worker exception on batch #{b_info.get('batch_num')}: {exc}", level="error")
+                with state.lock:
+                    state.failed_batches += 1
 
     with state.lock:
         state.active = False
