@@ -3,19 +3,111 @@
  */
 
 let selectedQuality = "1080p";
-let selectedAudioFormat = "m4a";
 let currentMeta = null;
 let eventSource = null;
 let pollTimer = null;
 let jobStartTime = null;
 let timerTicker = null;
 
+// Comprehensive metadata dictionary for all 10 containers & audio encodings
+const CONTAINER_METADATA = {
+  "mp4-h264": {
+    title: "MP4 (H.264 / AAC)",
+    badge: "Universal",
+    category: "video",
+    desc: "The global gold standard for maximum device compatibility. Plays natively on iPhones, Android phones, Smart TVs, web browsers, and video editing suites (Premiere Pro, DaVinci Resolve, Final Cut Pro) without transcoding.",
+    speed: "⚡ Ultra-Fast GPU & Hardware Accelerated",
+    codecs: "Video: H.264 / AVC • Audio: AAC-LC Stereo",
+    sizeMultiplier: 1.0,
+  },
+  "mp4-av1": {
+    title: "MP4 (AV1 / AAC)",
+    badge: "Next-Gen Efficient",
+    category: "video",
+    desc: "Modern open royalty-free codec developed by Google, Apple, and Netflix. Yields ~30% smaller files than H.264 at identical visual clarity. Ideal for saving bandwidth and storage on newer devices.",
+    speed: "🌱 Maximum Compression Efficiency (~30% smaller)",
+    codecs: "Video: AV1 (AOMedia) • Audio: AAC-LC Stereo",
+    sizeMultiplier: 0.72,
+  },
+  "mkv": {
+    title: "MKV (Matroska Container)",
+    badge: "Power User & Archival",
+    category: "video",
+    desc: "Flexible open-standard container capable of preserving multi-track audio, original bitstreams, and soft subtitles without lossy conversion. Best for desktop media players like VLC and MPV.",
+    speed: "🚀 Zero Transcoding Overhead (Fastest stream merge)",
+    codecs: "Video: Source Codec • Audio: Original Bitstream",
+    sizeMultiplier: 1.0,
+  },
+  "webm": {
+    title: "WebM (VP9 / Opus)",
+    badge: "Web Native",
+    category: "video",
+    desc: "Google's open web standard optimized for HTML5 playback and Chromium browsers. Features VP9 video paired with high-clarity Opus audio.",
+    speed: "⚡ Native YouTube Stream Container (No remuxing)",
+    codecs: "Video: VP9 • Audio: Opus Audio",
+    sizeMultiplier: 0.88,
+  },
+  "mov": {
+    title: "MOV (Apple QuickTime)",
+    badge: "Apple Ecosystem",
+    category: "video",
+    desc: "Native container for macOS, iOS, Final Cut Pro, and QuickTime Player. Provides immediate scrub performance in Apple video editing workflows.",
+    speed: "⚡ Native macOS & QuickTime Optimized",
+    codecs: "Video: H.264 / ProRes • Audio: AAC Stereo",
+    sizeMultiplier: 1.05,
+  },
+  "mp3": {
+    title: "MP3 (MPEG-1 Audio Layer III)",
+    badge: "Universal Audio",
+    category: "audio",
+    desc: "The universal digital audio format. Plays on every car stereo, MP3 player, smart speaker, and operating system in existence with VBR/CBR up to 320 kbps.",
+    speed: "⚡ Fast Audio Extraction & Universal Compatibility",
+    codecs: "Audio: MP3 up to 320 kbps (High Fidelity)",
+    audioMultiplier: 1.0,
+  },
+  "m4a": {
+    title: "M4A (Apple AAC)",
+    badge: "High Fidelity",
+    category: "audio",
+    desc: "Advanced Audio Coding in MPEG-4 container. Produces noticeably clearer highs and tighter bass than MP3 at similar or smaller file sizes. Native to Apple Music and iPhones.",
+    speed: "🚀 Direct Stream Extract (Zero quality loss)",
+    codecs: "Audio: AAC Stereo (Native YouTube track)",
+    audioMultiplier: 0.85,
+  },
+  "opus": {
+    title: "OPUS (Ogg Opus)",
+    badge: "Maximum Efficiency",
+    category: "audio",
+    desc: "The cutting-edge IETF audio codec used natively by YouTube and Discord. Superior sound quality at low bitrates with extremely low latency. Outstanding clarity for podcasts and music.",
+    speed: "⚡ Native Stream Copy (Lossless copy from YouTube)",
+    codecs: "Audio: Opus 48 kHz",
+    audioMultiplier: 0.75,
+  },
+  "flac": {
+    title: "FLAC (Free Lossless Audio Codec)",
+    badge: "Lossless Studio",
+    category: "audio",
+    desc: "Studio-grade lossless audio compression that preserves 100% of the acoustic data. Perfect for audiophiles, audio engineers, and permanent music archives.",
+    speed: "🎧 Bit-Perfect Lossless Conversion via FFmpeg",
+    codecs: "Audio: FLAC Lossless 16/24-bit PCM",
+    audioMultiplier: 3.5,
+  },
+  "wav": {
+    title: "WAV (Uncompressed PCM)",
+    badge: "Raw Audio Master",
+    category: "audio",
+    desc: "Uncompressed pulse-code modulation (PCM) audio master. Zero compression artifacts, instant loading in Digital Audio Workstations (DAWs) like Ableton, FL Studio, and Pro Tools.",
+    speed: "🎛️ DAW & Studio Ready (Zero decompression latency)",
+    codecs: "Audio: Linear PCM 1411 kbps Uncompressed",
+    audioMultiplier: 5.5,
+  },
+};
+
 // Initialize on page load
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   initSystemChecks();
-  initQualitySelector();
-  initAudioSegments();
+  initContainerInspector();
   fetchFilesList();
   initLogStream();
 });
@@ -83,35 +175,258 @@ async function initSystemChecks() {
 }
 
 // ==============================================================================
-// 3. Quality & Audio Format Selectors
+// 3. Dynamic Resolution & Container Inspector
 // ==============================================================================
-function initQualitySelector() {
-  const options = document.querySelectorAll(".quality-option");
-  const audioGroup = document.getElementById("audio-container-group");
-
-  options.forEach((opt) => {
-    opt.addEventListener("click", () => {
-      options.forEach((o) => o.classList.remove("active"));
-      opt.classList.add("active");
-      selectedQuality = opt.getAttribute("data-quality");
-
-      if (selectedQuality === "audio") {
-        audioGroup.classList.remove("hidden");
-      } else {
-        audioGroup.classList.add("hidden");
-      }
-    });
-  });
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return "0 MB";
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${Math.round(bytes / 1024)} KB`;
 }
 
-function initAudioSegments() {
-  const btns = document.querySelectorAll(".segment-btn");
-  btns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      btns.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      selectedAudioFormat = btn.getAttribute("data-audio-fmt");
+function calculateEstimatedSize(containerVal, qualityVal) {
+  const cMeta = CONTAINER_METADATA[containerVal] || CONTAINER_METADATA["mp4-h264"];
+  const isAudio = cMeta.category === "audio" || qualityVal === "audio";
+  const totalItems = (currentMeta && currentMeta.total_items) ? currentMeta.total_items : 1;
+
+  if (isAudio) {
+    let baseAudioBytes = 0;
+    if (currentMeta && currentMeta.audio_info && currentMeta.audio_info.size_bytes) {
+      baseAudioBytes = currentMeta.audio_info.size_bytes;
+    } else if (currentMeta && currentMeta.duration) {
+      baseAudioBytes = Math.round((192 * 1000 / 8) * currentMeta.duration);
+    } else {
+      baseAudioBytes = 8.5 * 1024 * 1024;
+    }
+    const mult = cMeta.audioMultiplier || 1.0;
+    const singleBytes = Math.round(baseAudioBytes * mult);
+    const totalBytes = singleBytes * totalItems;
+    return {
+      singleFormatted: `~${formatBytes(singleBytes)}`,
+      totalFormatted: `~${formatBytes(totalBytes)}`,
+      totalItems: totalItems,
+      isAudio: true,
+    };
+  }
+
+  // Video calculation
+  let baseVideoBytes = 0;
+  if (currentMeta && currentMeta.available_resolutions && currentMeta.available_resolutions.length > 0) {
+    const numericQ = parseInt(qualityVal) || 1080;
+    let found = currentMeta.available_resolutions.find(r => r.height === numericQ);
+    if (!found) {
+      found = currentMeta.available_resolutions[0];
+    }
+    baseVideoBytes = found ? found.size_bytes : (60 * 1024 * 1024);
+  } else {
+    const numericQ = parseInt(qualityVal) || 1080;
+    if (numericQ >= 2160) baseVideoBytes = 380 * 1024 * 1024;
+    else if (numericQ >= 1440) baseVideoBytes = 180 * 1024 * 1024;
+    else if (numericQ >= 1080) baseVideoBytes = 95 * 1024 * 1024;
+    else if (numericQ >= 720) baseVideoBytes = 45 * 1024 * 1024;
+    else baseVideoBytes = 25 * 1024 * 1024;
+  }
+
+  const mult = cMeta.sizeMultiplier || 1.0;
+  const singleBytes = Math.round(baseVideoBytes * mult);
+  const totalBytes = singleBytes * totalItems;
+
+  return {
+    singleFormatted: `~${formatBytes(singleBytes)}`,
+    totalFormatted: `~${formatBytes(totalBytes)}`,
+    totalItems: totalItems,
+    isAudio: false,
+  };
+}
+
+function updateFormatInspectorCard(containerVal) {
+  const containerSelect = document.getElementById("container-select");
+  const val = containerVal || (containerSelect ? containerSelect.value : "mp4-h264");
+  const cMeta = CONTAINER_METADATA[val] || CONTAINER_METADATA["mp4-h264"];
+
+  const badgeEl = document.getElementById("fmt-badge");
+  const titleEl = document.getElementById("fmt-title");
+  const sizeEl = document.getElementById("fmt-size-est");
+  const descEl = document.getElementById("fmt-desc");
+  const speedEl = document.getElementById("fmt-speed");
+  const codecsEl = document.getElementById("fmt-codecs");
+
+  if (badgeEl) badgeEl.textContent = cMeta.badge;
+  if (titleEl) titleEl.textContent = cMeta.title;
+  if (descEl) descEl.textContent = cMeta.desc;
+  if (speedEl) speedEl.textContent = cMeta.speed;
+  if (codecsEl) codecsEl.textContent = cMeta.codecs;
+
+  if (sizeEl) {
+    const est = calculateEstimatedSize(val, selectedQuality);
+    if (est.totalItems > 1) {
+      sizeEl.textContent = `Estimated Size: ${est.totalFormatted} (${est.totalItems} items)`;
+    } else {
+      sizeEl.textContent = `Estimated Size: ${est.singleFormatted}`;
+    }
+  }
+}
+
+function initContainerInspector() {
+  const containerSelect = document.getElementById("container-select");
+  if (containerSelect) {
+    containerSelect.addEventListener("change", (e) => {
+      handleContainerChange(e.target.value);
     });
+    updateFormatInspectorCard(containerSelect.value);
+  }
+}
+
+function handleContainerChange(val) {
+  const cMeta = CONTAINER_METADATA[val] || CONTAINER_METADATA["mp4-h264"];
+  if (cMeta.category === "audio") {
+    selectedQuality = "audio";
+    const pills = document.querySelectorAll(".quality-option");
+    pills.forEach((p) => {
+      if (p.getAttribute("data-quality") === "audio") {
+        p.classList.add("active");
+      } else {
+        p.classList.remove("active");
+      }
+    });
+  } else {
+    // If audio was selected, switch back to highest resolution or 1080p
+    if (selectedQuality === "audio") {
+      let target = "1080p";
+      if (currentMeta && currentMeta.available_resolutions && currentMeta.available_resolutions.length > 0) {
+        const found = currentMeta.available_resolutions.find(r => r.height === 1080) || currentMeta.available_resolutions[0];
+        target = `${found.height}p`;
+      }
+      selectedQuality = target;
+      const pills = document.querySelectorAll(".quality-option");
+      pills.forEach((p) => {
+        if (p.getAttribute("data-quality") === target) {
+          p.classList.add("active");
+        } else {
+          p.classList.remove("active");
+        }
+      });
+    }
+  }
+
+  updateFormatInspectorCard(val);
+}
+
+function selectQuality(qualityStr) {
+  selectedQuality = qualityStr;
+  const containerSelect = document.getElementById("container-select");
+  const currentContainer = containerSelect ? containerSelect.value : "mp4-h264";
+  const cMeta = CONTAINER_METADATA[currentContainer] || CONTAINER_METADATA["mp4-h264"];
+
+  if (qualityStr === "audio") {
+    if (cMeta.category === "video" && containerSelect) {
+      containerSelect.value = "mp3";
+    }
+  } else {
+    if (cMeta.category === "audio" && containerSelect) {
+      containerSelect.value = "mp4-h264";
+    }
+  }
+
+  const pills = document.querySelectorAll(".quality-option");
+  pills.forEach((p) => {
+    if (p.getAttribute("data-quality") === qualityStr) {
+      p.classList.add("active");
+    } else {
+      p.classList.remove("active");
+    }
+  });
+
+  updateFormatInspectorCard(containerSelect ? containerSelect.value : null);
+}
+
+function renderAvailableResolutions(meta) {
+  const container = document.getElementById("quality-selector");
+  const hintEl = document.getElementById("res-status-hint");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  const resolutions = meta.available_resolutions || [];
+  if (resolutions.length === 0) {
+    renderFallbackResolutions(meta);
+    return;
+  }
+
+  const maxRes = resolutions.find(r => r.is_max) || resolutions[0];
+  if (hintEl) {
+    hintEl.textContent = `${resolutions.length} resolutions detected • Max: ${maxRes.label}`;
+  }
+
+  // Choose default resolution: 1080p if available, else highest
+  const defaultRes = resolutions.find(r => r.height === 1080) || resolutions[0];
+  selectedQuality = `${defaultRes.height}p`;
+
+  resolutions.forEach((res) => {
+    const box = document.createElement("div");
+    box.className = `quality-option ${res.height === defaultRes.height ? "active" : ""}`;
+    box.setAttribute("data-quality", `${res.height}p`);
+    box.onclick = () => selectQuality(`${res.height}p`);
+
+    const sizeDisplay = meta.is_playlist ? res.playlist_size_formatted : res.size_formatted;
+
+    box.innerHTML = `
+      ${res.is_max ? '<span class="q-max-badge">MAX</span>' : ''}
+      <strong>${res.label}</strong>
+      <span class="q-size">${sizeDisplay}</span>
+      <span class="q-codec">${res.fps}fps • ${res.vcodec}</span>
+    `;
+    container.appendChild(box);
+  });
+
+  // Render Audio Only option
+  const audioInfo = meta.audio_info || {};
+  const audioSizeDisplay = meta.is_playlist ? (audioInfo.playlist_size_formatted || "~15 MB") : (audioInfo.size_formatted || "~8 MB");
+
+  const audioBox = document.createElement("div");
+  audioBox.className = "quality-option";
+  audioBox.setAttribute("data-quality", "audio");
+  audioBox.onclick = () => selectQuality("audio");
+
+  audioBox.innerHTML = `
+    <strong>🎵 Audio Only</strong>
+    <span class="q-size">${audioSizeDisplay}</span>
+    <span class="q-codec">MP3 / AAC / FLAC</span>
+  `;
+  container.appendChild(audioBox);
+
+  const containerSelect = document.getElementById("container-select");
+  updateFormatInspectorCard(containerSelect ? containerSelect.value : "mp4-h264");
+}
+
+function renderFallbackResolutions(meta) {
+  const container = document.getElementById("quality-selector");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const fallbacks = [
+    { res: "1080p", label: "1080p Full HD", size: "~95 MB", codec: "60fps • H.264", active: true },
+    { res: "720p", label: "720p HD", size: "~45 MB", codec: "60fps • H.264" },
+    { res: "480p", label: "480p SD", size: "~25 MB", codec: "30fps • H.264" },
+    { res: "audio", label: "🎵 Audio Only", size: "~8 MB", codec: "HQ Stereo" }
+  ];
+
+  selectedQuality = "1080p";
+  fallbacks.forEach(fb => {
+    const box = document.createElement("div");
+    box.className = `quality-option ${fb.active ? "active" : ""}`;
+    box.setAttribute("data-quality", fb.res);
+    box.onclick = () => selectQuality(fb.res);
+    box.innerHTML = `
+      <strong>${fb.label}</strong>
+      <span class="q-size">${fb.size}</span>
+      <span class="q-codec">${fb.codec}</span>
+    `;
+    container.appendChild(box);
   });
 }
 
@@ -231,6 +546,9 @@ function renderMediaPreview(meta) {
     li.textContent = meta.title;
     listEl.appendChild(li);
   }
+
+  // Render the dynamic resolutions detected from stream
+  renderAvailableResolutions(meta);
 }
 
 // ==============================================================================
@@ -244,6 +562,11 @@ async function startDownload() {
   }
 
   const destFolder = document.getElementById("dest-folder").value.trim() || "./downloads";
+  const containerSelect = document.getElementById("container-select");
+  const chosenContainer = containerSelect ? containerSelect.value : "mp4-h264";
+  const cMeta = CONTAINER_METADATA[chosenContainer] || CONTAINER_METADATA["mp4-h264"];
+  const isAudio = cMeta.category === "audio" || selectedQuality === "audio";
+
   const workers = parseInt(document.getElementById("workers-slider").value) || 3;
   const chunkSize = parseInt(document.getElementById("chunk-slider").value) || 20;
   const startIdx = parseInt(document.getElementById("item-start").value) || 1;
@@ -258,8 +581,9 @@ async function startDownload() {
     url: url,
     output_dir: destFolder,
     quality: selectedQuality,
-    audio_only: selectedQuality === "audio",
-    audio_format: selectedAudioFormat,
+    container: chosenContainer,
+    audio_only: isAudio,
+    audio_format: isAudio ? (cMeta.category === "audio" ? chosenContainer : "m4a") : "m4a",
     workers: workers,
     chunk_size: chunkSize,
     start: startIdx,

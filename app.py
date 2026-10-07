@@ -125,6 +125,8 @@ class DownloadRequest(BaseModel):
     url: str
     output_dir: str = "./downloads"
     quality: str = "1080p"
+    container: str = "mp4-h264"
+    custom_format: Optional[str] = None
     audio_only: bool = False
     audio_format: str = "m4a"
     merge_format: str = "mp4"
@@ -197,26 +199,153 @@ async def get_system_status():
     }
 
 
+def parse_available_formats(formats: List[Dict[str, Any]], duration: Optional[float] = None, total_items: int = 1) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Analyzes yt-dlp format metadata and extracts actual available resolutions, codecs, and sizes."""
+    best_audio = None
+    for f in formats:
+        if f.get("vcodec") == "none" and f.get("acodec") != "none":
+            if not best_audio or (f.get("tbr") or 0) > (best_audio.get("tbr") or 0):
+                best_audio = f
+
+    audio_size = 0
+    if best_audio:
+        audio_size = best_audio.get("filesize") or best_audio.get("filesize_approx") or 0
+        if not audio_size and duration and best_audio.get("tbr"):
+            audio_size = int((best_audio["tbr"] * 1000 / 8) * duration)
+
+    by_height: Dict[int, Dict[str, Any]] = {}
+    for f in formats:
+        h = f.get("height")
+        if not h or h < 144:
+            continue
+        vcodec = f.get("vcodec") or ""
+        if vcodec == "none":
+            continue
+
+        size = f.get("filesize") or f.get("filesize_approx")
+        if not size and duration and f.get("tbr"):
+            size = int((f["tbr"] * 1000 / 8) * duration)
+
+        fps = f.get("fps") or 30
+
+        codec_label = "H.264"
+        if "av01" in vcodec.lower():
+            codec_label = "AV1"
+        elif "vp9" in vcodec.lower() or "vp09" in vcodec.lower():
+            codec_label = "VP9"
+
+        total_single_size = (size or 0) + audio_size
+
+        if h not in by_height or total_single_size > by_height[h]["size"]:
+            by_height[h] = {
+                "height": h,
+                "size": total_single_size,
+                "vcodec": codec_label,
+                "fps": int(fps),
+            }
+
+    height_labels = {
+        2160: "4K Ultra HD",
+        1440: "1440p 2K QHD",
+        1080: "1080p Full HD",
+        720: "720p HD",
+        480: "480p SD",
+        360: "360p",
+        240: "240p",
+        144: "144p",
+    }
+
+    res_list = []
+    sorted_heights = sorted(by_height.keys(), reverse=True)
+    max_h = sorted_heights[0] if sorted_heights else None
+
+    def fmt_size(b: int) -> str:
+        if b >= 1024**3:
+            return f"~{b / (1024**3):.1f} GB"
+        if b >= 1024**2:
+            return f"~{b / (1024**2):.1f} MB"
+        return f"~{b / 1024:.0f} KB" if b > 0 else "Unknown size"
+
+    for h in sorted_heights:
+        info = by_height[h]
+        single_sz = info["size"]
+        playlist_sz = single_sz * total_items
+
+        res_list.append({
+            "height": h,
+            "label": height_labels.get(h, f"{h}p"),
+            "is_max": (h == max_h),
+            "size_bytes": single_sz,
+            "size_formatted": fmt_size(single_sz),
+            "playlist_size_formatted": f"{fmt_size(playlist_sz)} ({total_items} items)" if total_items > 1 else fmt_size(single_sz),
+            "vcodec": info["vcodec"],
+            "fps": info["fps"],
+        })
+
+    audio_single_sz = audio_size if audio_size > 0 else int(12.5 * 1024 * 1024)
+    audio_info = {
+        "size_bytes": audio_single_sz,
+        "size_formatted": fmt_size(audio_single_sz),
+        "playlist_size_formatted": f"{fmt_size(audio_single_sz * total_items)} ({total_items} items)" if total_items > 1 else fmt_size(audio_single_sz),
+        "codec": "AAC / MP3 up to 320 kbps",
+    }
+
+    return res_list, audio_info
+
+
 @app.post("/api/inspect")
 async def inspect_url(req: InspectRequest):
-    """Fetches title, total items count, uploader, thumbnail, and items preview."""
+    """Analyzes the video or playlist, extracts actual available resolutions, codecs, and sizes."""
     try:
         ytdlp_cmd = find_ytdlp()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"yt-dlp error: {e}")
 
     try:
-        # Run flat playlist JSON extraction
-        cmd = list(ytdlp_cmd) + [
-            "--flat-playlist",
-            "-J",
-            "--ignore-errors",
-            "--no-warnings",
-        ]
+        is_playlist_url = "playlist?list=" in req.url or "/playlist" in req.url
+        base_cmd = list(ytdlp_cmd)
         if req.cookies_browser:
-            cmd.extend(["--cookies-from-browser", req.cookies_browser])
-        cmd.append(req.url)
+            base_cmd.extend(["--cookies-from-browser", req.cookies_browser])
 
+        if not is_playlist_url:
+            # Single video direct deep inspection
+            cmd = base_cmd + ["-J", "--no-warnings", "--no-playlist", req.url]
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if proc.returncode != 0 and not proc.stdout.strip():
+                raise RuntimeError(proc.stderr.strip() or "Failed to inspect video")
+
+            data = json.loads(proc.stdout)
+            title = data.get("title") or "YouTube Video"
+            uploader = data.get("uploader") or data.get("channel") or ""
+            duration = data.get("duration") or 0
+            thumbnails = data.get("thumbnails", [])
+            thumb_url = thumbnails[-1].get("url") if thumbnails else None
+            formats = data.get("formats", [])
+
+            resolutions, audio_info = parse_available_formats(formats, duration, total_items=1)
+
+            return {
+                "title": title,
+                "uploader": uploader,
+                "total_items": 1,
+                "is_playlist": False,
+                "thumbnail": thumb_url,
+                "duration": duration,
+                "available_resolutions": resolutions,
+                "audio_info": audio_info,
+                "entries": [{"title": title, "id": data.get("id")}],
+            }
+
+        # Playlist inspection
+        cmd = base_cmd + ["--flat-playlist", "-J", "--ignore-errors", "--no-warnings", req.url]
         proc = await asyncio.to_thread(
             subprocess.run,
             cmd,
@@ -226,34 +355,53 @@ async def inspect_url(req: InspectRequest):
             encoding="utf-8",
             errors="replace",
         )
-
         if proc.returncode != 0 and not proc.stdout.strip():
-            raise RuntimeError(proc.stderr.strip() or "Failed to inspect URL")
+            raise RuntimeError(proc.stderr.strip() or "Failed to inspect playlist")
 
         data = json.loads(proc.stdout)
-        title = data.get("title") or "YouTube Media"
+        title = data.get("title") or "YouTube Playlist"
         uploader = data.get("uploader") or data.get("channel") or ""
-        entries = data.get("entries")
-
+        entries = data.get("entries") or []
+        valid_entries = [e for e in entries if e is not None]
+        total_items = max(1, len(valid_entries))
         thumbnails = data.get("thumbnails", [])
         thumb_url = thumbnails[-1].get("url") if thumbnails else None
 
-        if entries is not None:
-            valid_entries = [e for e in entries if e is not None]
-            total_items = len(valid_entries)
-            is_playlist = True
-            preview_items = [{"title": e.get("title", f"Video {i+1}"), "id": e.get("id")} for i, e in enumerate(valid_entries[:20])]
-        else:
-            total_items = 1
-            is_playlist = False
-            preview_items = [{"title": title, "id": data.get("id")}]
+        preview_items = [{"title": e.get("title", f"Video {i+1}"), "id": e.get("id")} for i, e in enumerate(valid_entries[:20])]
+
+        # Sample the first video to extract available resolutions and format specs
+        resolutions = []
+        audio_info = {}
+        if valid_entries and valid_entries[0].get("id"):
+            sample_id = valid_entries[0]["id"]
+            sample_url = f"https://www.youtube.com/watch?v={sample_id}"
+            sample_cmd = base_cmd + ["-J", "--no-warnings", "--no-playlist", sample_url]
+            try:
+                proc_sample = await asyncio.to_thread(
+                    subprocess.run,
+                    sample_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                if proc_sample.returncode == 0 and proc_sample.stdout.strip():
+                    sample_data = json.loads(proc_sample.stdout)
+                    duration = sample_data.get("duration") or 0
+                    formats = sample_data.get("formats", [])
+                    resolutions, audio_info = parse_available_formats(formats, duration, total_items=total_items)
+            except Exception:
+                pass
 
         return {
             "title": title,
             "uploader": uploader,
             "total_items": total_items,
-            "is_playlist": is_playlist,
+            "is_playlist": True,
             "thumbnail": thumb_url,
+            "available_resolutions": resolutions,
+            "audio_info": audio_info,
             "entries": preview_items,
         }
     except Exception as e:
@@ -445,14 +593,57 @@ def _run_download_orchestrator(
         if req.cookies_from_browser:
             cmd.append(f"--cookies-from-browser={req.cookies_from_browser}")
 
-        # Quality / Audio
-        if req.audio_only or req.quality == "audio":
-            cmd.extend(["--extract-audio", f"--audio-format={req.audio_format}", "--audio-quality=0", "--format=ba/b"])
+        # Quality / Container / Encoding
+        audio_containers = ("mp3", "m4a", "opus", "flac", "wav")
+        if req.audio_only or req.quality == "audio" or req.container in audio_containers:
+            audio_fmt = req.container if req.container in audio_containers else (req.audio_format or "m4a")
+            cmd.extend(["--extract-audio", f"--audio-format={audio_fmt}", "--audio-quality=0"])
+            if req.custom_format:
+                cmd.append(f"--format={req.custom_format}")
+            else:
+                cmd.append("--format=ba/b")
         else:
-            fmt = QUALITY_PRESETS.get(req.quality, QUALITY_PRESETS["1080p"])
-            cmd.append(f"--format={fmt}")
-            if req.merge_format:
-                cmd.append(f"--merge-output-format={req.merge_format}")
+            h_match = re.search(r'\d+', req.quality)
+            height_limit = int(h_match.group()) if h_match else None
+
+            merge_fmt = "mp4"
+            if req.container == "mp4-av1":
+                merge_fmt = "mp4"
+                if height_limit:
+                    fmt_str = f"bv*[height<={height_limit}][vcodec^=av01]+ba/bv*[height<={height_limit}]+ba/b"
+                else:
+                    fmt_str = "bv*[vcodec^=av01]+ba/bv*+ba/b"
+            elif req.container == "mp4-h264":
+                merge_fmt = "mp4"
+                if height_limit:
+                    fmt_str = f"bv*[height<={height_limit}][vcodec^=avc]+ba[acodec^=mp4a]/bv*[height<={height_limit}]+ba/b"
+                else:
+                    fmt_str = "bv*[vcodec^=avc]+ba[acodec^=mp4a]/bv*+ba/b"
+            elif req.container == "webm":
+                merge_fmt = "webm"
+                if height_limit:
+                    fmt_str = f"bv*[height<={height_limit}][vcodec^=vp9]+ba[acodec^=opus]/bv*[height<={height_limit}]+ba/b"
+                else:
+                    fmt_str = "bv*[vcodec^=vp9]+ba[acodec^=opus]/bv*+ba/b"
+            elif req.container == "mkv":
+                merge_fmt = "mkv"
+                fmt_str = f"bv*[height<={height_limit}]+ba/b" if height_limit else "bv*+ba/b"
+            elif req.container == "mov":
+                merge_fmt = "mov"
+                fmt_str = f"bv*[height<={height_limit}]+ba/b" if height_limit else "bv*+ba/b"
+            elif req.custom_format:
+                fmt_str = req.custom_format
+                merge_fmt = req.merge_format or "mp4"
+            elif height_limit:
+                fmt_str = f"bv*[height<={height_limit}]+ba/b"
+                merge_fmt = req.merge_format or "mp4"
+            else:
+                fmt_str = QUALITY_PRESETS.get(req.quality, "bv*+ba/b")
+                merge_fmt = req.merge_format or "mp4"
+
+            cmd.append(f"--format={fmt_str}")
+            if merge_fmt:
+                cmd.append(f"--merge-output-format={merge_fmt}")
 
         if req.embed_subs:
             cmd.extend(["--write-subs", "--write-auto-subs", "--embed-subs"])

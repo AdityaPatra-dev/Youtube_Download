@@ -142,49 +142,60 @@
           <h3>Download Settings</h3>
         </div>
 
-        <!-- Quality Preset Options -->
+        <!-- Dynamic Quality & Resolution Selector -->
         <div class="setting-group">
-          <label class="setting-label">Quality & Format</label>
+          <div class="setting-label-row">
+            <label class="setting-label">Available Resolutions</label>
+            <span class="badge-hint" id="res-status-hint">Auto-detected from media stream</span>
+          </div>
           <div class="quality-selector" id="quality-selector">
-            <button type="button" class="quality-option active" data-quality="1080p">
-              <strong>1080p</strong>
-              <small>Full HD</small>
-            </button>
-            <button type="button" class="quality-option" data-quality="4k">
-              <strong>4K</strong>
-              <small>2160p</small>
-            </button>
-            <button type="button" class="quality-option" data-quality="1440p">
-              <strong>1440p</strong>
-              <small>2K</small>
-            </button>
-            <button type="button" class="quality-option" data-quality="720p">
-              <strong>720p</strong>
-              <small>HD</small>
-            </button>
-            <button type="button" class="quality-option" data-quality="480p">
-              <strong>480p</strong>
-              <small>SD</small>
-            </button>
-            <button type="button" class="quality-option" data-quality="best">
-              <strong>Best</strong>
-              <small>Original</small>
-            </button>
-            <button type="button" class="quality-option" data-quality="audio">
-              <strong>Audio Only</strong>
-              <small>MP3 / M4A</small>
-            </button>
+            <div class="quality-waiting-box" id="quality-waiting-box">
+              <span>Paste a YouTube link above and click <strong>Fetch Details</strong> to scan actual available resolutions and calculate exact file sizes.</span>
+            </div>
           </div>
         </div>
 
-        <!-- Audio Format Selector (visible if audio is selected) -->
-        <div class="setting-group hidden" id="audio-container-group">
-          <label class="setting-label">Audio Container</label>
-          <div class="segmented-control">
-            <button type="button" class="segment-btn active" data-audio-fmt="m4a">M4A (AAC)</button>
-            <button type="button" class="segment-btn" data-audio-fmt="mp3">MP3</button>
-            <button type="button" class="segment-btn" data-audio-fmt="opus">OPUS</button>
-            <button type="button" class="segment-btn" data-audio-fmt="flac">FLAC</button>
+        <!-- Output File Type & Encoding Dropdown -->
+        <div class="setting-group">
+          <div class="setting-label-row">
+            <label class="setting-label" for="container-select">Select Output File Type & Encoding</label>
+            <span class="badge-hint">10 Containers & Encodings Available</span>
+          </div>
+          <div class="select-wrapper">
+            <select id="container-select" onchange="handleContainerChange(this.value)">
+              <optgroup label="🎬 Video Containers & Encodings">
+                <option value="mp4-h264" selected>MP4 (H.264 / AAC) — Universal compatibility (Default)</option>
+                <option value="mp4-av1">MP4 (AV1 / AAC) — Next-Gen, 30% smaller, ultra-efficient</option>
+                <option value="mkv">MKV (Matroska) — Preserves all codecs, multi-track & subtitles</option>
+                <option value="webm">WebM (VP9 / Opus) — Google open web standard</option>
+                <option value="mov">MOV (Apple QuickTime) — macOS & ProRes compatible</option>
+              </optgroup>
+              <optgroup label="🎵 Audio-Only Formats">
+                <option value="mp3">MP3 (MPEG-1 Audio Layer III, up to 320 kbps) — Universal audio</option>
+                <option value="m4a">M4A (AAC Audio) — Apple high fidelity, compact size</option>
+                <option value="opus">OPUS (Ogg Opus) — Superior streaming audio per bit</option>
+                <option value="flac">FLAC (Lossless) — Studio quality bit-perfect compression</option>
+                <option value="wav">WAV (PCM Uncompressed) — Raw uncompressed audio master</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <!-- Interactive Hover / Format Details Card -->
+          <div class="format-inspector-card" id="format-inspector-card">
+            <div class="format-card-header">
+              <div class="format-title-group">
+                <span class="format-badge-pill" id="fmt-badge">Universal</span>
+                <h4 id="fmt-title">MP4 (H.264 / AAC)</h4>
+              </div>
+              <div class="fmt-size-highlight" id="fmt-size-est">Estimated Size: ~127 MB</div>
+            </div>
+            <p class="format-card-desc" id="fmt-desc">
+              Most widely compatible video format. Plays on every phone, tablet, Smart TV, browser, and video editing software like Premiere Pro and DaVinci Resolve.
+            </p>
+            <div class="format-card-footer">
+              <span id="fmt-speed">⚡ Fastest hardware decoding</span>
+              <span id="fmt-codecs">Video: H.264 / AVC • Audio: AAC Stereo</span>
+            </div>
           </div>
         </div>
 
@@ -261,6 +272,55 @@
                 <p class="field-hint" style="margin-top: 0.5rem; color: var(--text-muted);">
                   ⚡ <strong>Turbo Streaming:</strong> Uses 16 parallel fragments and 10MB chunking to bypass YouTube speed throttling. If stopped mid-download, partial videos are automatically repaired so you can watch them immediately!
                 </p>
+        <!-- Speed Optimization Tips Accordion -->
+        <div class="advanced-section">
+          <button type="button" class="advanced-toggle-btn" onclick="toggleAccordion('speed-guide-drawer')">
+            <span>⚡ How to get maximum download speed (10 Acceleration Tips & aria2c)</span>
+            <span class="accordion-arrow">▼</span>
+          </button>
+          <div class="advanced-drawer hidden" id="speed-guide-drawer">
+            <div class="speed-tips-box">
+              <div class="tip-item">
+                <span class="tip-num">1</span>
+                <div>
+                  <strong>10MB Chunk Streaming (Enabled by Default)</strong>
+                  <p>Requests YouTube video streams in 10MB bursts. This bypasses YouTube's server-side player rate-limiting on large files.</p>
+                </div>
+              </div>
+              <div class="tip-item">
+                <span class="tip-num">2</span>
+                <div>
+                  <strong>16 Concurrent Fragment Connections (Enabled)</strong>
+                  <p>For single videos, downloads 16 video/audio segments in parallel across multiple threads for maximum speed.</p>
+                </div>
+              </div>
+              <div class="tip-item">
+                <span class="tip-num">3</span>
+                <div>
+                  <strong>Install aria2 Multi-Connection Downloader (Ultimate Speed)</strong>
+                  <p>Install <code>aria2</code> (<code>winget install aria2</code> on Windows or <code>sudo apt install aria2</code> on Linux). The downloader will automatically open 16 parallel TCP connections per file to saturate your full ISP bandwidth!</p>
+                </div>
+              </div>
+              <div class="tip-item">
+                <span class="tip-num">4</span>
+                <div>
+                  <strong>Increase Parallel Workers for Playlists</strong>
+                  <p>Use the <em>Parallel Workers</em> slider (set to 4 or 6) so multiple videos download simultaneously.</p>
+                </div>
+              </div>
+              <div class="tip-item">
+                <span class="tip-num">5</span>
+                <div>
+                  <strong>Use Browser Cookies</strong>
+                  <p>Select your browser (Chrome, Firefox, Brave) in <em>More Options</em>. Authenticated YouTube sessions are served from Google's high-priority edge cache nodes.</p>
+                </div>
+              </div>
+              <div class="tip-item">
+                <span class="tip-num">6</span>
+                <div>
+                  <strong>16MB Memory Socket Buffer (Active)</strong>
+                  <p>Caches downloaded chunks in RAM to prevent disk write stalls on 100Mbps - 1Gbps connections.</p>
+                </div>
               </div>
             </div>
           </div>

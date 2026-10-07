@@ -1106,3 +1106,205 @@ input[type="range"] {
   .full-width { grid-column: span 1; }
   .thumb-container { width: 100%; height: 160px; }
 }
+
+/* ==============================================================================
+   Dynamic Format Inspector, Resolution Pills & Speed Tips Styles
+   ============================================================================== */
+
+.setting-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.badge-hint {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+}
+
+.quality-waiting-box {
+  grid-column: 1 / -1;
+  background-color: var(--bg-subtle);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.quality-waiting-box strong {
+  color: var(--brand);
+}
+
+.quality-option {
+  position: relative;
+  min-height: 72px;
+}
+
+.quality-option .q-max-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background-color: var(--brand);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+
+.quality-option .q-size {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--brand);
+  margin-top: 0.2rem;
+}
+
+.quality-option .q-codec {
+  font-size: 0.68rem;
+  color: var(--text-light);
+}
+
+/* Container Select */
+.select-wrapper select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-main);
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.select-wrapper select:focus {
+  border-color: var(--brand);
+}
+
+/* Format Details / Hover Card */
+.format-inspector-card {
+  margin-top: 0.75rem;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: var(--transition-theme);
+}
+
+.format-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.format-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.format-title-group h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.format-badge-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--brand-light);
+  color: var(--brand-text);
+  text-transform: uppercase;
+}
+
+.fmt-size-highlight {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.format-card-desc {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.format-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-light);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.4rem;
+}
+
+/* Speed Tips Drawer */
+.speed-tips-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tip-item {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.tip-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--brand-light);
+  color: var(--brand-text);
+  font-weight: 700;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.tip-item strong {
+  display: block;
+  color: var(--text-main);
+  margin-bottom: 0.15rem;
+}
+
+.tip-item p {
+  color: var(--text-muted);
+}
+
+.tip-item code {
+  background-color: var(--bg-page);
+  border: 1px solid var(--border);
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--brand);
+}

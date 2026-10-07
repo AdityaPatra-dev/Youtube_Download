@@ -30,9 +30,9 @@
 
 ## 🌟 Highlights
 
-| ⚡ Parallel Batches | 🔄 Auto-Resume Archive | 🛡️ Clean Process Safety | 🌓 Light & Dark Modes |
+| 🔍 Stream Format Inspector | 🎬 10 Containers & Encodings | ⚡ Turbo Speed Engine | 🛡️ Mid-Stream File Salvager |
 | :---: | :---: | :---: | :---: |
-| <img src="https://api.iconify.design/fluent-emoji-flat:high-voltage.svg" width="44" height="44" /><br/>Splits large playlists into parallel chunks for **faster downloads** | <img src="https://api.iconify.design/fluent-emoji-flat:counterclockwise-arrows-button.svg" width="44" height="44" /><br/>Logs completed videos to `.yt-dlp-archive.txt` to avoid re-downloading | <img src="https://api.iconify.design/fluent-emoji-flat:shield.svg" width="44" height="44" /><br/>Clean child process termination on `Ctrl+C` — **no background zombies** | <img src="https://api.iconify.design/fluent-emoji-flat:sun-with-face.svg" width="44" height="44" /><br/>Clean, minimal design with instant **Light & Dark mode toggle** |
+| <img src="https://api.iconify.design/fluent-emoji-flat:magnifying-glass-tilted-right.svg" width="44" height="44" /><br/>Deep stream analysis displays **actual available resolutions** (4K, 1080p, etc.) with real-time file size calculations | <img src="https://api.iconify.design/fluent-emoji-flat:clapper-board.svg" width="44" height="44" /><br/>Select from **10 video & audio formats** (MP4 H.264, AV1, MKV, WebM, MOV, MP3, FLAC, etc.) with interactive hover cards | <img src="https://api.iconify.design/fluent-emoji-flat:high-voltage.svg" width="44" height="44" /><br/>**16-fragment concurrency**, 10MB chunking & optional `aria2c` bypasses YouTube player throttling | <img src="https://api.iconify.design/fluent-emoji-flat:shield.svg" width="44" height="44" /><br/>Cancelling mid-download? FFmpeg **automatically repairs partial files** so they remain 100% playable |
 
 ---
 
@@ -52,27 +52,36 @@ Then open **`http://127.0.0.1:8000`** in your browser.
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  Download YouTube Video or Playlist                                         │
-│  Paste any YouTube URL to download with parallel batches and auto-resume.   │
+│  Paste any YouTube URL to scan stream formats and download at turbo speed.  │
 │                                                                             │
-│  [ https://youtube.com/playlist?list=PL0c0N7xv8s0...   [Paste] ] [Fetch Info]│
+│  [ https://youtube.com/watch?v=jZLHZcyQmJI              ] [Fetch Details]   │
 │                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 🎬 Digital System Design (BEC302)  •  Dr. Vaibhav Jain                │  │
-│  │ 📦 52 Videos  •  Type: Playlist  •  Thumbnail Preview Loaded          │  │
+│  ┌─ Stream Detected ─────────────────────────────────────────────────────┐  │
+│  │ 🎬 Big Buck Bunny 60fps 4K  •  Blender Foundation                     │  │
+│  │ 📦 1 Video  •  Type: Single Video  •  Live Thumbnail Preview Loaded   │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
-│  Quality & Format:                                                          │
-│  [ 1080p Full HD ★ ]  [ 4K ]  [ 1440p ]  [ 720p ]  [ 480p ]  [ Audio Only ]  │
+│  Available Resolutions (Auto-Detected from Stream):                         │
+│  [ 4K Ultra HD (MAX) ]  [ 1440p 2K ]  [ 1080p FHD ★ ]  [ 720p ]  [ Audio ] │
+│    ~340 MB (60fps AV1)    ~180 MB       ~95 MB (60fps)   ~45 MB   ~8.5 MB   │
+│                                                                             │
+│  Output File Type & Encoding:                                               │
+│  [ MP4 (H.264 / AAC) — Universal compatibility (Default)                 ▼ ]│
+│                                                                             │
+│  ┌─ Format Details & Size Estimation ────────────────────────────────────┐  │
+│  │ [UNIVERSAL] MP4 (H.264 / AAC)             Estimated Size: ~95 MB      │  │
+│  │ Plays on iPhones, Android, TVs, Premiere & DaVinci without recoding.  │  │
+│  │ ⚡ Ultra-Fast GPU & Hardware Accelerated • Video: H.264 / Audio: AAC    │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  Parallel Workers: [ ===●======= ] 3 Workers                                │
 │  Batch Size:       [ =====●===== ] 20 Videos / Batch                        │
 │                                                                             │
-│  [                       ▶ START DOWNLOAD                                ]  │
+│  [                       ▶ START TURBO DOWNLOAD                          ]  │
 │                                                                             │
-│  ┌─ Live Download Output ────────────────────────────────────────────────┐  │
-│  │ [Batch #1] Videos 1-20  : [download] 100% of 150.4MiB at 18.2MB/s     │  │
-│  │ [Batch #2] Videos 21-40 : [download] 65% of 190.2MiB at 15.1MB/s      │  │
-│  │ [Batch #3] Videos 41-52 : RUNNING (3 Workers active)                  │  │
+│  ┌─ Live SSE Download Stream ────────────────────────────────────────────┐  │
+│  │ [download] 100% of 95.4MiB at 34.2MB/s ETA 00:00 (16 fragments)       │  │
+│  │ [Merger] Merging formats into "downloads/001 - Big Buck Bunny.mp4"    │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -81,6 +90,33 @@ Then open **`http://127.0.0.1:8000`** in your browser.
 - Built-in theme switch button in the header (Sun / Moon icon).
 - Remembers your preference via `localStorage` and respects system defaults.
 - Clean high-contrast typography in both modes — no distracting fluorescent glows or unnecessary animations.
+
+---
+
+## ⚡ Turbo Speed Architecture & Optimization Guide
+
+To make single-video and multi-video downloads as fast as physically possible and prevent throttles or data loss, the engine incorporates **10 deep optimizations**:
+
+1. **Elimination of Throttled Rate Loop Traps**:
+   YouTube server-side player throttling can cause minor download speed dips. Previous scripts using `--throttled-rate=100K` got stuck in an infinite restart loop (jumping from 10% back to 9%). Removing this threshold maintains continuous stream connection without dropping fragments.
+2. **16-Fragment Concurrency (`--concurrent-fragments=16`)**:
+   Instead of downloading a single segment at a time, the engine initiates 16 concurrent HTTP connections to YouTube DASH/HLS CDNs simultaneously, saturating full broadband bandwidth.
+3. **10MB HTTP Chunk Slicing (`--http-chunk-size=10M`)**:
+   Forces yt-dlp to request 10 Megabyte byte-ranges per request rather than tiny chunks, minimizing HTTP handshake latency and round-trip ping penalties.
+4. **16MB High-Throughput Memory Buffer (`--buffer-size=16M`)**:
+   Allocates a dedicated in-memory ring buffer to prevent disk I/O bottlenecks when writing high-bitrate 4K/60fps streams to SSD/HDD.
+5. **Aria2 Multi-Connection Accelerator Auto-Detection**:
+   If `aria2c` is installed on your system, the engine automatically delegates downloads with `-s 16 -x 16 -k 1M -j 16`, unleashing multi-threaded parallel downloads.
+6. **Parallel Multi-Process Playlist Workers**:
+   Playlists are segmented into non-overlapping batches and processed by independent OS worker processes (default 3, up to 8 workers), downloading multiple videos in parallel.
+7. **Zero-Transcoding Stream Remuxing**:
+   Uses FFmpeg stream-copy (`-c copy`) wherever possible to combine separate video and audio DASH streams instantly without wasting CPU or GPU cycles on re-encoding.
+8. **Direct AV1 / VP9 Bitstream Selection**:
+   Intelligently selects the native YouTube stream matching your chosen container, preventing any remuxing delays.
+9. **Smart Download Archive Resume (`.yt-dlp-archive.txt`)**:
+   Tracks downloaded video IDs locally; if an interrupted job is restarted, already downloaded files are skipped instantly in milliseconds.
+10. **Zero-Loss Mid-Stream File Salvaging (`salvage_partial_downloads`)**:
+    If you stop or cancel a download mid-stream, the engine executes FFmpeg container repair with `-movflags faststart` on the `.part` file, rewriting the MP4 index so you can immediately view and play everything downloaded up to the cancellation point!
 
 ---
 
