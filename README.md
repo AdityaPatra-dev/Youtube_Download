@@ -72,9 +72,13 @@ Everything (FFmpeg, Node.js solver, Aria2 accelerator, Python) is pre-bundled in
 # Option A: One command with Docker Compose
 docker compose up -d
 
-# Option B: Direct Docker CLI
-docker build -t youtube-downloader:latest .
-docker run -d -p 8000:8000 -v $(pwd)/downloads:/app/downloads --name youtube-downloader youtube-downloader:latest
+# Option B: Direct Docker CLI (pulls pre-built image from Docker Hub)
+docker run -d \
+  -p 8000:8000 \
+  -v $(pwd)/downloads:/app/downloads \
+  --name youtube-downloader \
+  --restart unless-stopped \
+  adityapatra/youtube-downloader:latest
 ```
 Open your browser at `http://localhost:8000`. All downloaded media is saved directly into your local `./downloads` folder.
 

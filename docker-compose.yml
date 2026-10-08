@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: youtube-downloader:latest
+    image: adityapatra/youtube-downloader:latest
     container_name: youtube-downloader
     restart: unless-stopped
     ports:
