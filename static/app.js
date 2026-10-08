@@ -628,23 +628,81 @@ function renderMediaPreview(meta) {
     thumbImg.src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=60";
   }
 
-  // Populate preview list
+  // Populate preview list with selectable checkboxes
   const listEl = document.getElementById("playlist-items-ol");
   listEl.innerHTML = "";
-  if (meta.entries && meta.entries.length > 0) {
-    meta.entries.forEach((item) => {
+  const items = (meta.preview_items && meta.preview_items.length > 0)
+    ? meta.preview_items
+    : (meta.entries && meta.entries.length > 0
+        ? meta.entries.map((e, idx) => ({ index: idx + 1, title: e.title || `Video ${idx + 1}` }))
+        : []);
+
+  if (items.length > 0) {
+    items.forEach((item) => {
+      const idx = item.index || 1;
       const li = document.createElement("li");
-      li.textContent = item.title || "Video item";
+      li.className = "playlist-item-row";
+      li.innerHTML = `
+        <input type="checkbox" class="playlist-item-chk" data-index="${idx}" checked onchange="updatePlaylistSelectionSummary()" />
+        <span class="playlist-item-idx">#${idx}</span>
+        <span class="playlist-item-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
+      `;
       listEl.appendChild(li);
     });
+    updatePlaylistSelectionSummary();
   } else {
     const li = document.createElement("li");
-    li.textContent = meta.title;
+    li.className = "playlist-item-row";
+    li.innerHTML = `<span class="playlist-item-title">${escapeHtml(meta.title)}</span>`;
     listEl.appendChild(li);
   }
 
   // Render the dynamic resolutions detected from stream
   renderAvailableResolutions(meta);
+}
+
+function updatePlaylistSelectionSummary() {
+  const checkboxes = document.querySelectorAll(".playlist-item-chk");
+  const summaryEl = document.getElementById("selected-items-summary");
+  if (!checkboxes.length || !summaryEl) return;
+
+  const total = checkboxes.length;
+  let checkedCount = 0;
+  checkboxes.forEach((cb) => {
+    if (cb.checked) checkedCount++;
+  });
+
+  if (checkedCount === total) {
+    summaryEl.textContent = `All ${total} videos selected`;
+  } else if (checkedCount === 0) {
+    summaryEl.textContent = `0 videos selected (Select at least 1)`;
+  } else {
+    summaryEl.textContent = `${checkedCount} of ${total} videos selected`;
+  }
+}
+
+function toggleAllPlaylistCheckboxes(selectState) {
+  const checkboxes = document.querySelectorAll(".playlist-item-chk");
+  checkboxes.forEach((cb) => {
+    cb.checked = selectState;
+  });
+  updatePlaylistSelectionSummary();
+}
+
+function getSelectedPlaylistIndices() {
+  const checkboxes = document.querySelectorAll(".playlist-item-chk");
+  if (!checkboxes.length) return null;
+
+  const total = checkboxes.length;
+  const selected = [];
+  checkboxes.forEach((cb) => {
+    if (cb.checked) {
+      selected.push(parseInt(cb.getAttribute("data-index")));
+    }
+  });
+
+  if (selected.length === total) return null;
+  return selected;
 }
 
 // ==============================================================================
@@ -673,6 +731,13 @@ async function startDownload() {
   const embedThumb = document.getElementById("chk-thumb").checked;
   const embedChapters = document.getElementById("chk-chapters") ? document.getElementById("chk-chapters").checked : true;
   const autoResume = document.getElementById("chk-resume").checked;
+  const sponsorblock = document.getElementById("chk-sponsorblock") ? document.getElementById("chk-sponsorblock").checked : false;
+
+  const selectedItems = getSelectedPlaylistIndices();
+  if (selectedItems && selectedItems.length === 0) {
+    showToast("Please select at least 1 video from the playlist");
+    return;
+  }
 
   const payload = {
     url: url,
@@ -691,6 +756,8 @@ async function startDownload() {
     embed_chapters: embedChapters,
     embed_metadata: true,
     no_archive: !autoResume,
+    sponsorblock: sponsorblock,
+    selected_items: selectedItems,
     title: currentMeta ? currentMeta.title : null,
     is_playlist: currentMeta ? currentMeta.is_playlist : null,
     total_items: currentMeta ? currentMeta.total_items : null,
@@ -708,8 +775,13 @@ async function startDownload() {
       throw new Error(data.detail || "Download failed to initiate");
     }
 
-    showToast("Download started!");
-    displayDashboard(data);
+    if (data.status === "QUEUED") {
+      showToast(data.message || "Added to download queue!");
+      displayDashboard(data);
+    } else {
+      showToast("Download started!");
+      displayDashboard(data);
+    }
   } catch (err) {
     showToast(`Download error: ${err.message}`);
   }
@@ -721,7 +793,7 @@ function displayDashboard(jobData) {
   panel.scrollIntoView({ behavior: "smooth" });
 
   document.getElementById("active-job-title").textContent = jobData.title || "YouTube Download";
-  document.getElementById("active-job-status").textContent = "DOWNLOADING";
+  document.getElementById("active-job-status").textContent = jobData.status || "DOWNLOADING";
   document.getElementById("btn-start").disabled = true;
 
   // Start timer ticker
@@ -734,9 +806,9 @@ function displayDashboard(jobData) {
     document.getElementById("job-time-label").textContent = `Elapsed: ${m > 0 ? `${m}m ` : ""}${s}s`;
   }, 1000);
 
-  // Poll job status every 2 seconds
+  // Poll job status every 1.5 seconds
   if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(pollJobState, 2000);
+  pollTimer = setInterval(pollJobState, 1500);
   pollJobState();
 }
 
@@ -752,10 +824,14 @@ async function pollJobState() {
       document.getElementById("btn-start").disabled = false;
       document.getElementById("active-job-status").textContent = data.status || "IDLE";
       fetchFilesList();
+    } else {
+      document.getElementById("btn-start").disabled = true;
+      document.getElementById("active-job-status").textContent = "DOWNLOADING";
     }
 
     renderBatches(data.batches || []);
     renderProgress(data);
+    renderQueue(data.queue || []);
   } catch (err) {
     console.error("Poll error", err);
   }
@@ -764,11 +840,83 @@ async function pollJobState() {
 function renderProgress(data) {
   const total = data.total_batches || 1;
   const finished = (data.completed_batches || 0) + (data.failed_batches || 0);
-  const pct = Math.round((finished / total) * 100);
+  const batchPct = Math.round((finished / total) * 100);
+  const effectivePct = (data.progress_pct !== null && data.progress_pct !== undefined && data.active)
+    ? Math.round(data.progress_pct)
+    : batchPct;
 
-  document.getElementById("job-progress-fill").style.width = `${pct}%`;
-  document.getElementById("job-pct-label").textContent = `${pct}% Completed`;
-  document.getElementById("job-batches-label").textContent = `${finished} of ${total} Batches finished`;
+  const fillEl = document.getElementById("job-progress-fill");
+  if (fillEl) fillEl.style.width = `${effectivePct}%`;
+
+  const pctLabel = document.getElementById("job-pct-label");
+  if (pctLabel) {
+    pctLabel.textContent = `${effectivePct}% Completed`;
+  }
+
+  const batchLabel = document.getElementById("job-batches-label");
+  if (batchLabel) {
+    batchLabel.textContent = `${finished} of ${total} Batches finished`;
+  }
+
+  // Live Granular Metrics
+  const speedEl = document.getElementById("metric-speed");
+  if (speedEl) speedEl.textContent = data.speed || "-- MiB/s";
+
+  const etaEl = document.getElementById("metric-eta");
+  if (etaEl) etaEl.textContent = data.eta ? `ETA ${data.eta}` : "--:--";
+
+  const sizeEl = document.getElementById("metric-size");
+  if (sizeEl) sizeEl.textContent = data.size || "-- / --";
+
+  const queueEl = document.getElementById("metric-queue");
+  if (queueEl) {
+    if (data.queue_count && data.queue_count > 0) {
+      queueEl.textContent = `${data.queue_count} Queued`;
+    } else {
+      queueEl.textContent = data.active ? "Active Job" : "Idle";
+    }
+  }
+}
+
+function renderQueue(queue) {
+  const sec = document.getElementById("queue-section");
+  const list = document.getElementById("queue-list");
+  const countNum = document.getElementById("queue-count-num");
+  if (!sec || !list) return;
+
+  if (!queue || queue.length === 0) {
+    sec.classList.add("hidden");
+    return;
+  }
+
+  sec.classList.remove("hidden");
+  if (countNum) countNum.textContent = queue.length;
+  list.innerHTML = "";
+
+  queue.forEach((item, idx) => {
+    const card = document.createElement("div");
+    card.className = "queue-card";
+    const itemTitle = item.title || item.url || `Job #${idx + 1}`;
+    card.innerHTML = `
+      <div class="queue-card-left">
+        <span class="queue-badge">#${idx + 1} In Queue</span>
+        <span class="queue-title" title="${escapeHtml(itemTitle)}">${escapeHtml(itemTitle)}</span>
+      </div>
+      <button type="button" class="queue-del-btn" onclick="deleteQueueItem(${idx})" title="Cancel this queued job">✕ Remove</button>
+    `;
+    list.appendChild(card);
+  });
+}
+
+async function deleteQueueItem(index) {
+  try {
+    const res = await fetch(`/api/queue/${index}`, { method: "DELETE" });
+    const data = await res.json();
+    showToast(data.message || "Removed from queue");
+    pollJobState();
+  } catch (err) {
+    showToast(`Error: ${err.message}`);
+  }
 }
 
 function renderBatches(batches) {
@@ -796,7 +944,6 @@ async function cancelDownload() {
     const res = await fetch("/api/cancel", { method: "POST" });
     const data = await res.json();
     showToast(data.message || "Stopping downloads...");
-    // Refresh files list so salvaged partial video shows up immediately
     setTimeout(fetchFilesList, 1200);
   } catch (err) {
     showToast(`Cancel failed: ${err.message}`);
@@ -851,7 +998,7 @@ function copyTerminal() {
 }
 
 // ==============================================================================
-// 7. Downloaded Files Library
+// 7. Downloaded Files Library & Management
 // ==============================================================================
 async function fetchFilesList() {
   try {
@@ -863,16 +1010,21 @@ async function fetchFilesList() {
     tbody.innerHTML = "";
 
     if (!files || files.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="3" class="table-empty-row">No downloaded files in directory yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" class="table-empty-row">No downloaded files in directory yet.</td></tr>`;
       return;
     }
 
     files.forEach((f) => {
       const tr = document.createElement("tr");
+      const safeName = escapeHtml(f.name);
       tr.innerHTML = `
-        <td style="font-weight: 500;">${f.name}</td>
+        <td style="font-weight: 500;">${safeName}</td>
         <td style="font-family: var(--font-mono); font-size: 0.8rem;">${f.size_formatted}</td>
         <td style="color: var(--text-muted); font-size: 0.8rem;">${f.modified}</td>
+        <td style="text-align: right; white-space: nowrap;">
+          <button type="button" class="btn-table-play" onclick="openMediaModal('${safeName}')">▶ Play</button>
+          <button type="button" class="btn-table-delete" onclick="deleteDownloadedFile('${safeName}')" title="Delete file">🗑️</button>
+        </td>
       `;
       tbody.appendChild(tr);
     });
@@ -880,3 +1032,174 @@ async function fetchFilesList() {
     console.error("Error fetching files list", err);
   }
 }
+
+async function openContainingFolder() {
+  const dest = document.getElementById("dest-folder")?.value || "./downloads";
+  try {
+    const res = await fetch("/api/files/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder: dest }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast("Opened destination folder in file explorer");
+    } else {
+      showToast(`Cannot open folder: ${data.detail}`);
+    }
+  } catch (err) {
+    showToast(`Folder error: ${err.message}`);
+  }
+}
+
+async function deleteDownloadedFile(filename) {
+  if (!confirm(`Are you sure you want to permanently delete "${filename}"?`)) return;
+  const dest = document.getElementById("dest-folder")?.value || "./downloads";
+  try {
+    const res = await fetch(`/api/files/delete?filename=${encodeURIComponent(filename)}&folder=${encodeURIComponent(dest)}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Deleted "${filename}"`);
+      fetchFilesList();
+    } else {
+      showToast(`Delete failed: ${data.detail}`);
+    }
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`);
+  }
+}
+
+// ==============================================================================
+// 8. One-Click yt-dlp Core Updater
+// ==============================================================================
+async function updateYtDlpEngine() {
+  const btn = document.getElementById("btn-update-ytdlp");
+  if (btn) btn.disabled = true;
+  showToast("Updating yt-dlp engine to latest version...");
+  try {
+    const res = await fetch("/api/system/update-ytdlp", { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`yt-dlp updated: ${data.version || "Latest release installed"}`);
+    } else {
+      showToast(`Update info: ${data.detail || data.output}`);
+    }
+  } catch (err) {
+    showToast(`Update error: ${err.message}`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ==============================================================================
+// 9. In-Browser HTML5 Video & Audio Player Modal
+// ==============================================================================
+function isVideoFile(filename) {
+  const ext = (filename.split(".").pop() || "").toLowerCase();
+  return ["mp4", "mkv", "webm", "mov", "avi", "flv", "m4v"].includes(ext);
+}
+
+function openMediaModal(filename) {
+  const modal = document.getElementById("media-modal");
+  const titleEl = document.getElementById("modal-media-title");
+  const badgeEl = document.getElementById("modal-media-badge");
+  const videoPlayer = document.getElementById("modal-video-player");
+  const audioPlayer = document.getElementById("modal-audio-player");
+  const directLink = document.getElementById("modal-download-direct");
+
+  const streamUrl = `/api/stream/${encodeURIComponent(filename)}`;
+  const isVideo = isVideoFile(filename);
+
+  titleEl.textContent = filename;
+  badgeEl.textContent = isVideo ? "VIDEO" : "AUDIO";
+  directLink.href = streamUrl;
+  directLink.setAttribute("download", filename);
+
+  setPlaybackSpeed(1.0);
+
+  if (isVideo) {
+    if (audioPlayer) {
+      audioPlayer.pause();
+      audioPlayer.classList.add("hidden");
+      audioPlayer.src = "";
+    }
+    if (videoPlayer) {
+      videoPlayer.classList.remove("hidden");
+      videoPlayer.src = streamUrl;
+      videoPlayer.load();
+      videoPlayer.play().catch(() => {});
+    }
+  } else {
+    if (videoPlayer) {
+      videoPlayer.pause();
+      videoPlayer.classList.add("hidden");
+      videoPlayer.src = "";
+    }
+    if (audioPlayer) {
+      audioPlayer.classList.remove("hidden");
+      audioPlayer.src = streamUrl;
+      audioPlayer.load();
+      audioPlayer.play().catch(() => {});
+    }
+  }
+
+  modal.classList.remove("hidden");
+}
+
+function closeMediaModal() {
+  const modal = document.getElementById("media-modal");
+  const videoPlayer = document.getElementById("modal-video-player");
+  const audioPlayer = document.getElementById("modal-audio-player");
+
+  if (videoPlayer) {
+    videoPlayer.pause();
+    videoPlayer.src = "";
+  }
+  if (audioPlayer) {
+    audioPlayer.pause();
+    audioPlayer.src = "";
+  }
+  if (modal) {
+    modal.classList.add("hidden");
+  }
+}
+
+function handleBackdropClick(event) {
+  if (event.target.id === "media-modal") {
+    closeMediaModal();
+  }
+}
+
+function setPlaybackSpeed(speed) {
+  const videoPlayer = document.getElementById("modal-video-player");
+  const audioPlayer = document.getElementById("modal-audio-player");
+  if (videoPlayer) videoPlayer.playbackRate = speed;
+  if (audioPlayer) audioPlayer.playbackRate = speed;
+
+  document.querySelectorAll(".speed-btn").forEach((btn) => {
+    if (parseFloat(btn.getAttribute("data-speed")) === speed) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+}
+
+function escapeHtml(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeMediaModal();
+  }
+});
+

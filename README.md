@@ -34,6 +34,10 @@
 | :---: | :---: | :---: | :---: |
 | **Native Chapter Markers**<br/>Embeds video chapters and timeline bookmarks into MP4/MKV files for easy scrubbing in VLC and media players | **Node.js/Deno Solver**<br/>Executes YouTube EJS challenges locally, preventing `HTTP 403 Forbidden` bot-detection errors | **Browser Session Detection**<br/>Discovers Chrome and Firefox cookies for age-restricted media with automatic fallback if database is locked | **Human-Friendly Design**<br/>Clean, high-contrast user interface with zero external framework dependencies and theme persistence |
 
+| 📺 In-Browser Media Player | 📊 Granular Live Telemetry | 📋 Multi-Job Download Queue | 🛡️ SponsorBlock & Item Picker |
+| :---: | :---: | :---: | :---: |
+| **HTTP 206 Streaming Modal**<br/>Stream downloaded video and audio files instantly with seekable Range requests, speed controls (`0.75x`–`2.0x`), and direct downloads | **Live Speed & ETA Metrics**<br/>Real-time stdout parsing tracks download bandwidth (`14.5 MiB/s`), ETA (`00:32`), size, and smooth percentage progress | **Sequential Queue Manager**<br/>Enqueue incoming jobs without overloading the system; automatically dispatches next job with one-click queue management | **Clean Videos & Cherry-Picking**<br/>Auto-remove sponsors, intros, and outros via SponsorBlock; select specific playlist items with interactive checkboxes |
+
 ---
 
 ## ⚡ Quick Start

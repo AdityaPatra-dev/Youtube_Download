@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 # Import core utilities from download_playlist.py
@@ -77,11 +77,26 @@ class GlobalDownloadState:
         self.active_processes: Dict[subprocess.Popen, BatchJob] = {}
         self.cancelled: bool = False
         self.log_subscribers: List[asyncio.Queue] = []
-        self.recent_logs: List[Dict[str, str]] = []
+        self.recent_logs: List[Dict[str, Any]] = []
+        # Real-time granular single-video/batch metrics
+        self.current_progress: float = 0.0
+        self.current_speed: str = ""
+        self.current_eta: str = ""
+        self.current_size: str = ""
+        # Multi-job download queue
+        self.queue: List[Any] = []
 
     def broadcast_log(self, text: str, level: str = "info"):
-        entry = {"text": text, "level": level, "timestamp": time.time()}
         with self.lock:
+            entry = {
+                "text": text,
+                "level": level,
+                "timestamp": time.time(),
+                "progress_pct": self.current_progress,
+                "speed": self.current_speed,
+                "eta": self.current_eta,
+                "size": self.current_size,
+            }
             self.recent_logs.append(entry)
             if len(self.recent_logs) > 300:
                 self.recent_logs.pop(0)
@@ -98,6 +113,9 @@ class GlobalDownloadState:
             self.cancelled = True
             self.status = "CANCELLED"
             self.active = False
+            self.current_progress = 0.0
+            self.current_speed = ""
+            self.current_eta = ""
             procs = list(self.active_processes.keys())
 
         for p in procs:
@@ -148,6 +166,8 @@ class DownloadRequest(BaseModel):
     embed_thumbnail: bool = False
     embed_chapters: bool = True
     embed_metadata: bool = True
+    sponsorblock: bool = False
+    selected_items: Optional[List[int]] = None
     title: Optional[str] = None
     is_playlist: Optional[bool] = None
     total_items: Optional[int] = None
@@ -479,7 +499,7 @@ async def inspect_url(req: InspectRequest):
         thumbnails = data.get("thumbnails", [])
         thumb_url = thumbnails[-1].get("url") if thumbnails else None
 
-        preview_items = [{"title": e.get("title", f"Video {i+1}"), "id": e.get("id")} for i, e in enumerate(valid_entries[:20])]
+        preview_items = [{"index": i + 1, "title": e.get("title", f"Video {i+1}"), "id": e.get("id")} for i, e in enumerate(valid_entries[:150])]
 
         # Sample the first video to extract available resolutions and format specs
         resolutions = []
@@ -522,7 +542,7 @@ async def inspect_url(req: InspectRequest):
 
 @app.get("/api/status")
 async def get_download_status():
-    """Returns current active download job state."""
+    """Returns current active download job state, granular progress, and queue details."""
     with state.lock:
         return {
             "active": state.active,
@@ -533,6 +553,21 @@ async def get_download_status():
             "completed_batches": state.completed_batches,
             "failed_batches": state.failed_batches,
             "batches": list(state.batches),
+            "progress_pct": round(state.current_progress, 1),
+            "speed": state.current_speed,
+            "eta": state.current_eta,
+            "size": state.current_size,
+            "queue_count": len(state.queue),
+            "queue": [
+                {
+                    "index": i + 1,
+                    "title": getattr(q, "title", None) or q.url,
+                    "url": q.url,
+                    "quality": q.quality,
+                    "container": q.container,
+                }
+                for i, q in enumerate(state.queue)
+            ],
         }
 
 
@@ -566,10 +601,23 @@ async def cancel_active_download():
 
 @app.post("/api/download")
 async def start_download_job(req: DownloadRequest):
-    """Initializes parallel batch chunks and launches background download executor."""
+    """Initializes parallel batch chunks or enqueues if another job is already running."""
     if state.active:
-        raise HTTPException(status_code=409, detail="A download job is already actively running!")
+        with state.lock:
+            state.queue.append(req)
+            pos = len(state.queue)
+        state.broadcast_log(f"Enqueued: '{req.title or req.url}' (Queue Position #{pos})", level="info")
+        return {
+            "status": "queued",
+            "message": f"Added to download queue at position #{pos}",
+            "queue_position": pos,
+            "title": req.title or "Queued Item",
+        }
 
+    return await asyncio.to_thread(_start_job_sync, req)
+
+
+def _start_job_sync(req: DownloadRequest) -> Dict[str, Any]:
     try:
         ytdlp_cmd = find_ytdlp()
     except Exception as e:
@@ -582,10 +630,17 @@ async def start_download_job(req: DownloadRequest):
     total_items = req.total_items or 1
 
     if not is_playlist:
-        # Instant single video dispatch - no slow 20-min re-inspection!
-        chunks = [(1, 1)]
+        chunks = [(1, 1, None)]
+    elif req.selected_items and len(req.selected_items) > 0:
+        # Checkbox-selected playlist items!
+        sorted_items = sorted(list(set(req.selected_items)))
+        total_items = len(sorted_items)
+        chunks = []
+        for i in range(0, len(sorted_items), req.chunk_size):
+            item_slice = sorted_items[i:i + req.chunk_size]
+            chunks.append((item_slice[0], item_slice[-1], item_slice))
     elif req.total_items and req.total_items > 0:
-        # Fast path: playlist was already inspected in UI
+        # Pre-inspected playlist
         total_items = req.total_items
         start_idx = max(1, req.start)
         end_idx = min(total_items, req.end) if req.end else total_items
@@ -594,12 +649,11 @@ async def start_download_job(req: DownloadRequest):
         chunks = []
         for i in range(start_idx, end_idx + 1, req.chunk_size):
             chunk_end = min(i + req.chunk_size - 1, end_idx)
-            chunks.append((i, chunk_end))
+            chunks.append((i, chunk_end, None))
     else:
-        # Fast playlist inspection only if total items unknown
+        # Fallback inspection
         try:
-            meta = await asyncio.to_thread(
-                fetch_playlist_info,
+            meta = fetch_playlist_info(
                 ytdlp_cmd=ytdlp_cmd,
                 url=req.url,
                 cookies_browser=req.cookies_from_browser,
@@ -611,14 +665,14 @@ async def start_download_job(req: DownloadRequest):
             raise HTTPException(status_code=400, detail=f"Could not inspect playlist: {e}")
 
         if not is_playlist or total_items <= 1:
-            chunks = [(1, 1)]
+            chunks = [(1, 1, None)]
         else:
             start_idx = max(1, req.start)
             end_idx = min(total_items, req.end) if req.end else total_items
             chunks = []
             for i in range(start_idx, end_idx + 1, req.chunk_size):
                 chunk_end = min(i + req.chunk_size - 1, end_idx)
-                chunks.append((i, chunk_end))
+                chunks.append((i, chunk_end, None))
 
     target_output_dir = Path(req.output_dir).expanduser().resolve()
 
@@ -633,20 +687,27 @@ async def start_download_job(req: DownloadRequest):
         state.total_batches = len(chunks)
         state.completed_batches = 0
         state.failed_batches = 0
+        state.current_progress = 0.0
+        state.current_speed = ""
+        state.current_eta = ""
+        state.current_size = ""
         state.batches = [
             {
                 "batch_num": idx + 1,
                 "start_idx": s,
                 "end_idx": e,
+                "items": items_list,
                 "status": "PENDING",
                 "duration": 0.0,
+                "progress": 0.0,
+                "speed": "",
+                "eta": "",
             }
-            for idx, (s, e) in enumerate(chunks)
+            for idx, (s, e, items_list) in enumerate(chunks)
         ]
 
     state.broadcast_log(f"Starting download: '{title}' ({len(chunks)} batch{'es' if len(chunks) > 1 else ''}, {req.workers} workers)", level="info")
 
-    # Launch background thread
     threading.Thread(
         target=_run_download_orchestrator,
         args=(req, chunks, is_playlist, ytdlp_cmd),
@@ -685,16 +746,25 @@ def _run_download_orchestrator(
         e_idx = batch_dict["end_idx"]
 
         batch_dict["status"] = "RUNNING"
-        state.broadcast_log(f"Batch #{batch_num} (Videos {s_idx}-{e_idx}): Started", level="info")
+        range_desc = f"Items: {','.join(str(x) for x in batch_dict['items'])}" if batch_dict.get("items") else f"Videos {s_idx}-{e_idx}"
+        state.broadcast_log(f"Batch #{batch_num} ({range_desc}): Started", level="info")
 
         log_file = logs_dir / f"batch_{batch_num:03d}_{s_idx}-{e_idx}.log"
 
         # Build yt-dlp command
         cmd = list(ytdlp_cmd)
         if is_playlist:
-            cmd.extend([f"--playlist-start={s_idx}", f"--playlist-end={e_idx}"])
+            if batch_dict.get("items"):
+                items_str = ",".join(str(x) for x in batch_dict["items"])
+                cmd.append(f"--playlist-items={items_str}")
+            else:
+                cmd.extend([f"--playlist-start={s_idx}", f"--playlist-end={e_idx}"])
         else:
             cmd.append("--no-playlist")
+
+        # SponsorBlock integration
+        if req.sponsorblock:
+            cmd.extend(["--sponsorblock-remove", "sponsor,intro,outro"])
 
         # Multi-fragment speed acceleration: 16 fragments for single video or 8 for playlists
         frag_count = 16 if not is_playlist or len(chunks) == 1 else max(req.concurrent_fragments, 8)
@@ -816,7 +886,29 @@ def _run_download_orchestrator(
                     f_log.flush()
                     log_lines.append(line)
                     cleaned = line.strip()
-                    if cleaned and ("[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned):
+                    if not cleaned:
+                        continue
+
+                    # Granular progress extraction
+                    prog_match = re.search(r'\[download\]\s+([\d\.]+)%\s+of\s+~?([\w\.\s]+)\s+at\s+([\w\.\/]+)\s+ETA\s+([\d:]+)', cleaned)
+                    if prog_match:
+                        try:
+                            p_val = float(prog_match.group(1))
+                            sz_val = prog_match.group(2).strip()
+                            spd_val = prog_match.group(3).strip()
+                            eta_val = prog_match.group(4).strip()
+                            with state.lock:
+                                state.current_progress = p_val
+                                state.current_size = sz_val
+                                state.current_speed = spd_val
+                                state.current_eta = eta_val
+                                batch_dict["progress"] = p_val
+                                batch_dict["speed"] = spd_val
+                                batch_dict["eta"] = eta_val
+                        except Exception:
+                            pass
+
+                    if "[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned:
                         state.broadcast_log(f"[B#{batch_num}] {cleaned}")
 
                 returncode = proc.wait()
@@ -853,7 +945,28 @@ def _run_download_orchestrator(
                             f_log.write(line)
                             f_log.flush()
                             cleaned = line.strip()
-                            if cleaned and ("[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned):
+                            if not cleaned:
+                                continue
+
+                            prog_match = re.search(r'\[download\]\s+([\d\.]+)%\s+of\s+~?([\w\.\s]+)\s+at\s+([\w\.\/]+)\s+ETA\s+([\d:]+)', cleaned)
+                            if prog_match:
+                                try:
+                                    p_val = float(prog_match.group(1))
+                                    sz_val = prog_match.group(2).strip()
+                                    spd_val = prog_match.group(3).strip()
+                                    eta_val = prog_match.group(4).strip()
+                                    with state.lock:
+                                        state.current_progress = p_val
+                                        state.current_size = sz_val
+                                        state.current_speed = spd_val
+                                        state.current_eta = eta_val
+                                        batch_dict["progress"] = p_val
+                                        batch_dict["speed"] = spd_val
+                                        batch_dict["eta"] = eta_val
+                                except Exception:
+                                    pass
+
+                            if "[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned:
                                 state.broadcast_log(f"[B#{batch_num}] {cleaned}")
 
                         returncode = retry_proc.wait()
@@ -907,6 +1020,19 @@ def _run_download_orchestrator(
 
     state.broadcast_log(f"All download jobs concluded. Status: {state.status}", level="success" if state.status == "COMPLETED" else "warn")
 
+    # Queue auto-dispatch:
+    if not state.cancelled:
+        next_job = None
+        with state.lock:
+            if state.queue and not state.active:
+                next_job = state.queue.pop(0)
+        if next_job:
+            state.broadcast_log(f"Auto-dispatching queued download: '{getattr(next_job, 'title', None) or next_job.url}'", level="info")
+            try:
+                _start_job_sync(next_job)
+            except Exception as exc:
+                state.broadcast_log(f"Failed to auto-start queued download: {exc}", level="error")
+
 
 # ==============================================================================
 # Server-Sent Events (SSE) Live Log Streaming
@@ -954,6 +1080,8 @@ async def list_downloaded_files(folder: str = Query("./downloads")):
 
     files_list = []
     try:
+        video_exts = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v"}
+        audio_exts = {".mp3", ".m4a", ".opus", ".flac", ".wav", ".aac"}
         for p in sorted(target_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
             if p.is_file() and not p.name.startswith("."):
                 size_bytes = p.stat().st_size
@@ -965,16 +1093,139 @@ async def list_downloaded_files(folder: str = Query("./downloads")):
                     size_fmt = f"{size_bytes / 1024:.0f} KB"
 
                 mod_time = datetime.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                ext = p.suffix.lower()
                 files_list.append({
                     "name": p.name,
                     "size_bytes": size_bytes,
                     "size_formatted": size_fmt,
                     "modified": mod_time,
+                    "is_video": ext in video_exts,
+                    "is_audio": ext in audio_exts,
+                    "is_playable": ext in video_exts or ext in audio_exts,
+                    "stream_url": f"/api/stream/{p.name}?folder={folder}",
                 })
     except Exception as e:
         print(f"File list error: {e}")
 
     return files_list
+
+
+@app.api_route("/api/stream/{filename:path}", methods=["GET", "HEAD"])
+async def stream_media_file(filename: str, folder: str = Query("./downloads")):
+    """Streams a downloaded video or audio file with HTTP 206 Partial Content Range support."""
+    target_dir = Path(folder).expanduser().resolve()
+    target_file = (target_dir / filename).resolve()
+
+    if not str(target_file).startswith(str(target_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not target_file.is_file():
+        raise HTTPException(status_code=404, detail="Media file not found")
+
+    mime_type, _ = mimetypes.guess_type(str(target_file))
+    mime_type = mime_type or "video/mp4"
+
+    return FileResponse(
+        path=target_file,
+        media_type=mime_type,
+        filename=target_file.name,
+        content_disposition_type="inline",
+    )
+
+
+@app.post("/api/files/open")
+async def open_download_folder(request: Request, folder: str = Query("./downloads")):
+    """Opens the local download directory in the system file explorer."""
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("folder"):
+            folder = body["folder"]
+    except Exception:
+        pass
+
+    target_dir = Path(folder).expanduser().resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if platform.system() == "Windows":
+            os.startfile(str(target_dir))
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", str(target_dir)], check=False)
+        else:  # Linux
+            subprocess.Popen(["xdg-open", str(target_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"status": "ok", "message": f"Opened folder: {target_dir}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not open file manager: {e}")
+
+
+@app.delete("/api/files/delete")
+async def delete_downloaded_file(filename: str = Query(...), folder: str = Query("./downloads")):
+    """Deletes a downloaded media file."""
+    target_dir = Path(folder).expanduser().resolve()
+    target_file = (target_dir / filename).resolve()
+
+    if not str(target_file).startswith(str(target_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not target_file.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        target_file.unlink()
+        state.broadcast_log(f"Deleted file: '{filename}'", level="info")
+        return {"status": "ok", "message": f"File '{filename}' successfully deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not delete file: {e}")
+
+
+@app.get("/api/queue")
+async def get_download_queue():
+    """Returns the pending download queue."""
+    with state.lock:
+        return {
+            "queue_count": len(state.queue),
+            "queue": [
+                {
+                    "index": i + 1,
+                    "title": getattr(q, "title", None) or q.url,
+                    "url": q.url,
+                    "quality": q.quality,
+                    "container": q.container,
+                }
+                for i, q in enumerate(state.queue)
+            ],
+        }
+
+
+@app.delete("/api/queue/{index}")
+async def remove_from_queue(index: int):
+    """Removes a pending item from the download queue."""
+    with state.lock:
+        if 1 <= index <= len(state.queue):
+            removed = state.queue.pop(index - 1)
+            state.broadcast_log(f"Removed '{getattr(removed, 'title', None) or removed.url}' from queue", level="info")
+            return {"status": "ok", "message": "Removed from queue"}
+        raise HTTPException(status_code=404, detail="Queue position not found")
+
+
+@app.post("/api/system/update-ytdlp")
+async def update_ytdlp_engine():
+    """Updates the underlying yt-dlp binary to the latest version."""
+    try:
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=120,
+        )
+        proc_ver = subprocess.run([sys.executable, "-m", "yt_dlp", "--version"], stdout=subprocess.PIPE, text=True)
+        ver_str = proc_ver.stdout.strip()
+        state.broadcast_log(f"yt-dlp engine updated to {ver_str}", level="success")
+        return {"status": "ok", "version": ver_str}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {e}")
 
 
 # ==============================================================================

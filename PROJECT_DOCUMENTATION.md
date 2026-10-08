@@ -338,12 +338,43 @@ Youtube_Download/
 
 ---
 
-## 9. Future Roadmap & Potential Improvements
+## 9. Future Roadmap & Completed Milestone Features
 
-1. **Granular Single-Video Progress Bar**: Parse exact percentage (`45.2%`), speed (`14.5 MiB/s`), and remaining time (`ETA 00:32`) from streaming output to advance the progress bar continuously for single files.
-2. **In-Browser Video & Audio Player**: Add a playback modal to stream downloaded videos directly in the browser with speed controls and chapter selection.
-3. **Multi-Job Download Queue**: Allow users to queue multiple URLs to download in sequence automatically.
-4. **SponsorBlock Integration**: Optional toggle to remove sponsored segments, intro titles, and end cards (`--sponsorblock-remove sponsor,intro`).
-5. **Checkbox Selection for Playlists**: Enable selecting specific individual videos from a playlist manifest instead of strictly contiguous ranges.
-6. **Native File Explorer Integration**: Add a "Show in Folder" button to open the containing download directory via system file managers (`nautilus`, `explorer`, `open`).
+All items initially proposed in the roadmap have been fully designed, engineered, and integrated into the active codebase:
+
+### ✅ Completed Milestones
+
+1. **Granular Real-Time Progress & Telemetry**:
+   - Live stdout stream parsing captures exact completion percentage (`45.2%`), download rate (`14.5 MiB/s`), remaining time (`ETA 00:32`), and transferred size in real time.
+   - Progress bar updates continuously across single video and multi-batch operations.
+
+2. **In-Browser HTML5 Video & Audio Player**:
+   - Built-in playback modal powered by the `/api/stream/{filename}` endpoint with full **HTTP 206 Partial Content Range** support.
+   - Supports instant timeline seeking, speed controls (`0.75x`, `1.0x`, `1.25x`, `1.5x`, `2.0x`), and direct downloading.
+   - Automatically detects video containers vs. audio-only files and toggles `<video>` and `<audio>` controls accordingly.
+
+3. **Multi-Job Sequential Download Queue**:
+   - Queue management system allows users to enqueue multiple videos and playlists while an active download is in progress.
+   - Automatically dispatches the next queued job upon completion with an interactive queue inspector and one-click removal (`/api/queue/{index}`).
+
+4. **SponsorBlock Ad & Promotion Excision**:
+   - Optional toggle (`--sponsorblock-remove sponsor,intro,outro`) leverages the SponsorBlock community database to cleanly excise non-music/sponsored sections during download remuxing.
+
+5. **Checkbox Cherry-Picking for Playlists**:
+   - Dynamic checkbox selector on each video row in the playlist manifest.
+   - Allows users to cherry-pick specific videos from long playlists with "Select All" / "Deselect All" helpers and summary counters, passing selective `--playlist-items` directly to the engine.
+
+6. **Native File Explorer & File Management**:
+   - One-click "📁 Open Folder" button executes native OS file manager commands (`xdg-open` on Linux, `explorer.exe` on Windows, `open` on macOS) via `/api/files/open`.
+   - In-library file deletion (`DELETE /api/files/delete`) removes unwanted media without navigating outside the web UI.
+
+7. **One-Click `yt-dlp` Engine Core Updater**:
+   - Integrated updater in navigation bar (`POST /api/system/update-ytdlp`) seamlessly updates the underlying `yt-dlp` engine to the latest release to quickly adapt to YouTube API changes without manual terminal commands.
+
+---
+
+### 🔮 Future Expansion Ideas
+- **Automated Channel Subscriptions & RSS Watchers**: Periodically poll channel uploads and automatically fetch newly released videos in preferred quality.
+- **Auto-Subtitles Translation & Transcription**: Integrate Whisper or YouTube auto-translated tracks into standard `.srt` / `.vtt` subtitles during export.
+- **Bandwidth Rate Limiting**: Allow configuring maximum download bandwidth limits to prevent network saturation.
 
