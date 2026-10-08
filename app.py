@@ -6,6 +6,8 @@ Runs on localhost:8000 with a modern glassmorphism web dashboard,
 real-time SSE log streaming, parallel chunk downloads, and resume capability.
 """
 
+from __future__ import annotations
+
 import asyncio
 import datetime
 import json
@@ -19,7 +21,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -979,7 +981,9 @@ async def list_downloaded_files(folder: str = Query("./downloads")):
 # Standalone Launcher
 # ==============================================================================
 
-def start_server(host: str = "127.0.0.1", port: int = 8000):
+def start_server(host: Optional[str] = None, port: Optional[int] = None):
+    host = host or os.environ.get("HOST", "127.0.0.1")
+    port = port or int(os.environ.get("PORT", "8000"))
     url = f"http://{host}:{port}"
     print("\n" + "=" * 55)
     print("  YouTube Playlist Downloader — Local Web Interface")
@@ -993,9 +997,12 @@ def start_server(host: str = "127.0.0.1", port: int = 8000):
 
 if __name__ == "__main__":
     import argparse
+    default_host = os.environ.get("HOST", "127.0.0.1")
+    default_port = int(os.environ.get("PORT", "8000"))
+
     parser = argparse.ArgumentParser(description="YouTube Downloader Localhost Web Interface")
-    parser.add_argument("--host", default="127.0.0.1", help="Server host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8000, help="Server port (default: 8000)")
+    parser.add_argument("--host", default=default_host, help=f"Server host (default: {default_host})")
+    parser.add_argument("--port", type=int, default=default_port, help=f"Server port (default: {default_port})")
     args = parser.parse_args()
 
     start_server(host=args.host, port=args.port)

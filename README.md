@@ -64,6 +64,22 @@ http://127.0.0.1:8000
 
 ---
 
+### 🐳 Run with Docker (Zero-Config Container)
+
+Everything (FFmpeg, Node.js solver, Aria2 accelerator, Python) is pre-bundled in the image:
+
+```bash
+# Option A: One command with Docker Compose
+docker compose up -d
+
+# Option B: Direct Docker CLI
+docker build -t youtube-downloader:latest .
+docker run -d -p 8000:8000 -v $(pwd)/downloads:/app/downloads --name youtube-downloader youtube-downloader:latest
+```
+Open your browser at `http://localhost:8000`. All downloaded media is saved directly into your local `./downloads` folder.
+
+---
+
 ## 🌐 Local Web Interface
 
 The web studio runs on your local network with zero external cloud dependencies:

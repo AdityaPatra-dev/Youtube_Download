@@ -291,6 +291,8 @@ pip install -r requirements.txt
 ```
 
 ### 3. Launching
+
+#### Option A: Local Python
 ```bash
 # Run Web Application
 python app.py
@@ -299,25 +301,39 @@ python app.py
 python download_playlist.py
 ```
 
+#### Option B: Docker Container (Zero-Config)
+All binaries (`ffmpeg`, `nodejs`, `aria2`, `python`) are pre-configured:
+```bash
+# Via Docker Compose:
+docker compose up -d
+
+# Via Docker CLI:
+docker build -t youtube-downloader:latest .
+docker run -d -p 8000:8000 -v $(pwd)/downloads:/app/downloads --name youtube-downloader youtube-downloader:latest
+```
+
 ---
 
 ## 8. File Structure Overview
 
 ```text
 Youtube_Download/
-├── app.py                     # FastAPI web backend, orchestrator, SSE broadcaster
-├── download_playlist.py       # Standalone Python CLI downloader
-├── requirements.txt           # Dependencies (yt-dlp, fastapi, uvicorn, mutagen)
-├── PROJECT_DOCUMENTATION.md   # Comprehensive technical manual (this document)
-├── README.md                  # Project overview & quickstart guide
+├── Dockerfile                 # 🐳 Multi-tool container image definition (ffmpeg, node, aria2)
+├── docker-compose.yml         # 🐳 One-command container orchestration definition
+├── .dockerignore              # 🙈 Excluded build artifacts and local media
+├── app.py                     # ⚡ FastAPI web backend, orchestrator, SSE broadcaster
+├── download_playlist.py       # 🚀 Standalone Python CLI downloader
+├── requirements.txt           # 📦 Dependencies (yt-dlp, fastapi, uvicorn, mutagen)
+├── PROJECT_DOCUMENTATION.md   # 📖 Comprehensive technical manual (this document)
+├── README.md                  # 📖 Project overview & quickstart guide
 ├── static/
-│   ├── index.html             # Clean responsive UI layout
-│   ├── style.css              # Custom styling, dark/light themes, typography
-│   └── app.js                 # Frontend state manager, event listeners, SSE reader
-├── downloads/                 # Default destination directory for downloaded media
-│   └── .logs/                 # Batch log outputs and diagnostics
-├── download_playlist.ps1      # Legacy Windows PowerShell script
-└── download_playlist_v2.ps1   # Legacy PowerShell v2 script
+│   ├── index.html             #    • Clean responsive UI layout
+│   ├── style.css              #    • Custom styling, dark/light themes, typography
+│   └── app.js                 #    • Frontend state manager, event listeners, SSE reader
+├── downloads/                 # 📂 Default destination directory for downloaded media
+│   └── .logs/                 #    • Batch log outputs and diagnostics
+├── download_playlist.ps1      # 📜 Legacy Windows PowerShell script
+└── download_playlist_v2.ps1   # 📜 Legacy PowerShell v2 script
 ```
 
 ---
@@ -330,3 +346,4 @@ Youtube_Download/
 4. **SponsorBlock Integration**: Optional toggle to remove sponsored segments, intro titles, and end cards (`--sponsorblock-remove sponsor,intro`).
 5. **Checkbox Selection for Playlists**: Enable selecting specific individual videos from a playlist manifest instead of strictly contiguous ranges.
 6. **Native File Explorer Integration**: Add a "Show in Folder" button to open the containing download directory via system file managers (`nautilus`, `explorer`, `open`).
+
