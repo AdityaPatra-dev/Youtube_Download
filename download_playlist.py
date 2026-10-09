@@ -582,9 +582,11 @@ class DownloadManager:
         if self.throttled_rate:
             cmd.append(f"--throttled-rate={self.throttled_rate}")
 
-        # Download archive to avoid duplicate downloads across runs
+        # Download archive: check actual files on disk unless archive_path is explicitly set
         if self.archive_path:
             cmd.append(f"--download-archive={self.archive_path}")
+        else:
+            cmd.extend(["--no-download-archive", "--no-overwrites"])
 
         # Cookies
         if self.cookies_file:
@@ -1267,13 +1269,11 @@ def main():
     output_dir = Path(args.output).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Archive file configuration
-    if args.no_archive:
-        archive_path = None
-    elif args.archive_file:
+    # Archive file configuration: Default to filesystem duplicate checking unless --archive-file is explicitly set
+    if args.archive_file:
         archive_path = Path(args.archive_file).expanduser().resolve()
     else:
-        archive_path = output_dir / ".yt-dlp-archive.txt"
+        archive_path = None
 
     # Fetch playlist information
     print(Colors.info(f"Inspecting URL: {Colors.highlight(args.url)} ..."))

@@ -734,8 +734,6 @@ def _run_download_orchestrator(
     logs_dir = output_dir / ".logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    archive_path = None if req.no_archive else (output_dir / ".yt-dlp-archive.txt")
-
     def run_chunk(batch_dict: Dict[str, Any]):
         if state.cancelled:
             batch_dict["status"] = "CANCELLED"
@@ -777,12 +775,19 @@ def _run_download_orchestrator(
             "--file-access-retries=5",
             "--retry-sleep=exp=1:20",
             "--continue",
-            "--no-overwrites",
             "--ignore-errors",
             "--http-chunk-size=10M",
             "--buffer-size=16M",
             f"--output={output_dir}/%(playlist_index)03d - %(title).100s.%(ext)s" if is_playlist else f"--output={output_dir}/%(title).100s.%(ext)s",
         ])
+
+        # Filesystem-level duplicate skipping: checks actual disk files instead of static text archive.
+        # This allows re-downloading deleted files, and downloading different resolutions/formats cleanly.
+        cmd.append("--no-download-archive")
+        if req.no_archive:
+            cmd.append("--force-overwrites")
+        else:
+            cmd.append("--no-overwrites")
 
         # If aria2c is installed, utilize aria2c for turbo multi-connection speeds
         if shutil.which("aria2c"):
@@ -793,8 +798,6 @@ def _run_download_orchestrator(
 
         if req.throttled_rate:
             cmd.append(f"--throttled-rate={req.throttled_rate}")
-        if archive_path:
-            cmd.append(f"--download-archive={archive_path}")
         if req.cookies_from_browser:
             if req.cookies_from_browser.startswith("file:"):
                 c_path = Path(req.cookies_from_browser.split("file:", 1)[1]).resolve()
@@ -1247,6 +1250,13 @@ async def delete_downloaded_file(filename: str = Query(...), folder: str = Query
 
     try:
         target_file.unlink()
+        # Clean up any lingering legacy archive files so deleted videos can be freely re-downloaded
+        legacy_archive = target_dir / ".yt-dlp-archive.txt"
+        if legacy_archive.is_file():
+            try:
+                legacy_archive.unlink()
+            except Exception:
+                pass
         state.broadcast_log(f"Deleted file: '{filename}'", level="info")
         return {"status": "ok", "message": f"File '{filename}' successfully deleted"}
     except Exception as e:
