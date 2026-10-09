@@ -611,7 +611,9 @@ class DownloadManager:
         else:
             format_str = self.custom_format or QUALITY_PRESETS.get(self.quality, QUALITY_PRESETS["1080p"])
             cmd.append(f"--format={format_str}")
-            if self.merge_format:
+            if self.merge_format == "mov":
+                cmd.append("--recode-video=mov")
+            elif self.merge_format:
                 cmd.append(f"--merge-output-format={self.merge_format}")
 
         # Subtitles

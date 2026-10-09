@@ -816,7 +816,8 @@ def _run_download_orchestrator(
             h_match = re.search(r'\d+', req.quality)
             height_limit = int(h_match.group()) if h_match else None
 
-            merge_fmt = "mp4"
+            merge_fmt = None
+            recode_fmt = None
             if req.container == "mp4-av1":
                 merge_fmt = "mp4"
                 if height_limit:
@@ -832,15 +833,20 @@ def _run_download_orchestrator(
             elif req.container == "webm":
                 merge_fmt = "webm"
                 if height_limit:
-                    fmt_str = f"bv*[height<={height_limit}][vcodec^=vp9]+ba[acodec^=opus]/bv*[height<={height_limit}]+ba/b"
+                    fmt_str = f"bv*[height<={height_limit}][vcodec^=vp9]+ba[acodec^=opus]/bv*[height<={height_limit}][vcodec^=av01]+ba[acodec^=opus]/bv*[height<={height_limit}]+ba/b"
                 else:
-                    fmt_str = "bv*[vcodec^=vp9]+ba[acodec^=opus]/bv*+ba/b"
+                    fmt_str = "bv*[vcodec^=vp9]+ba[acodec^=opus]/bv*[vcodec^=av01]+ba[acodec^=opus]/bv*+ba/b"
             elif req.container == "mkv":
                 merge_fmt = "mkv"
                 fmt_str = f"bv*[height<={height_limit}]+ba/b" if height_limit else "bv*+ba/b"
             elif req.container == "mov":
-                merge_fmt = "mov"
-                fmt_str = f"bv*[height<={height_limit}]+ba/b" if height_limit else "bv*+ba/b"
+                # QuickTime MOV container does not support Opus audio or AV1/VP9 video without transcoding.
+                # Prioritize H.264 + AAC, and use --recode-video=mov so any incompatible codec is properly converted.
+                recode_fmt = "mov"
+                if height_limit:
+                    fmt_str = f"bv*[height<={height_limit}][vcodec^=avc]+ba[acodec^=mp4a]/bv*[height<={height_limit}]+ba/b"
+                else:
+                    fmt_str = "bv*[vcodec^=avc]+ba[acodec^=mp4a]/bv*+ba/b"
             elif req.custom_format:
                 fmt_str = req.custom_format
                 merge_fmt = req.merge_format or "mp4"
@@ -852,7 +858,9 @@ def _run_download_orchestrator(
                 merge_fmt = req.merge_format or "mp4"
 
             cmd.append(f"--format={fmt_str}")
-            if merge_fmt:
+            if recode_fmt:
+                cmd.append(f"--recode-video={recode_fmt}")
+            elif merge_fmt:
                 cmd.append(f"--merge-output-format={merge_fmt}")
 
         if req.embed_subs:
@@ -977,6 +985,73 @@ def _run_download_orchestrator(
                         with state.lock:
                             if retry_proc is not None:
                                 state.active_processes.pop(retry_proc, None)
+
+        # Automatic fallback 2: if stream merging/conversion failed (codec mismatch), retry with safe container recoding
+        if returncode != 0 and not state.cancelled:
+            err_text = "".join(log_lines[-30:])
+            if any(term in err_text.lower() for term in ["conversion failed", "could not write header", "only supported in mp4", "not currently supported in container"]):
+                state.broadcast_log(f"[B#{batch_num}] Warning: Stream muxing into '{req.container}' failed due to codec mismatch. Retrying with safe container recoding...", level="warning")
+                recode_target = req.container if req.container in ["mp4", "mkv", "mov", "webm"] else "mp4"
+                recode_cmd = []
+                for a in cmd:
+                    if a.startswith("--merge-output-format="):
+                        recode_cmd.append(f"--recode-video={recode_target}")
+                    else:
+                        recode_cmd.append(a)
+                if not any(a.startswith("--recode-video") for a in recode_cmd):
+                    recode_cmd.append(f"--recode-video={recode_target}")
+
+                with open(log_file, "a", encoding="utf-8", errors="replace") as f_log:
+                    f_log.write(f"\n--- [System] Retrying download with safe container recoding ({recode_target}) ---\n")
+                    recode_proc = None
+                    try:
+                        recode_proc = subprocess.Popen(
+                            recode_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            bufsize=1,
+                            universal_newlines=True,
+                        )
+                        with state.lock:
+                            state.active_processes[recode_proc] = batch_dict
+
+                        for line in recode_proc.stdout:
+                            f_log.write(line)
+                            f_log.flush()
+                            cleaned = line.strip()
+                            if not cleaned:
+                                continue
+
+                            prog_match = re.search(r'\[download\]\s+([\d\.]+)%\s+of\s+~?([\w\.\s]+)\s+at\s+([\w\.\/]+)\s+ETA\s+([\d:]+)', cleaned)
+                            if prog_match:
+                                try:
+                                    p_val = float(prog_match.group(1))
+                                    sz_val = prog_match.group(2).strip()
+                                    spd_val = prog_match.group(3).strip()
+                                    eta_val = prog_match.group(4).strip()
+                                    with state.lock:
+                                        state.current_progress = p_val
+                                        state.current_size = sz_val
+                                        state.current_speed = spd_val
+                                        state.current_eta = eta_val
+                                        batch_dict["progress"] = p_val
+                                        batch_dict["speed"] = spd_val
+                                        batch_dict["eta"] = eta_val
+                                except Exception:
+                                    pass
+
+                            if "[download]" in cleaned or "[ExtractAudio]" in cleaned or "[Merger]" in cleaned or "[VideoConvertor]" in cleaned or "ERROR" in cleaned or "WARNING" in cleaned:
+                                state.broadcast_log(f"[B#{batch_num}] {cleaned}")
+
+                        returncode = recode_proc.wait()
+                    except Exception as e:
+                        returncode = -1
+                        state.broadcast_log(f"Batch #{batch_num} recode retry error: {e}", level="error")
+                    finally:
+                        with state.lock:
+                            if recode_proc is not None:
+                                state.active_processes.pop(recode_proc, None)
 
         duration = time.time() - start_time
         batch_dict["duration"] = duration
