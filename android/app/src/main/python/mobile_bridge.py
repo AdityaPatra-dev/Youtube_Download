@@ -24,85 +24,124 @@ QUALITY_MAP = {
 }
 
 
-def fetch_video_info(url: str) -> str:
+def fetch_video_info(url: str, cookies_content: str = "") -> str:
     """
     Extracts video or playlist metadata and available formats.
     Returns JSON string for the Android WebView to consume.
     """
     import yt_dlp
+    import tempfile
 
     ydl_opts = {
         "extract_flat": "in_playlist",
         "skip_download": True,
         "quiet": True,
         "no_warnings": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+            }
+        },
     }
 
+    temp_cookie_file = None
+    if cookies_content and cookies_content.strip():
+        try:
+            fd, temp_path = tempfile.mkstemp(prefix="yt_cookies_", suffix=".txt")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(cookies_content)
+            ydl_opts["cookiefile"] = temp_path
+            temp_cookie_file = temp_path
+        except Exception:
+            pass
+    else:
+        for p in [Path("/sdcard/Download/cookies.txt"), Path("/storage/emulated/0/Download/cookies.txt")]:
+            if p.is_file():
+                ydl_opts["cookiefile"] = str(p)
+                break
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info:
-                return json.dumps({"error": "Failed to extract stream information."})
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as initial_err:
+            err_msg = str(initial_err)
+            if any(term in err_msg.lower() for term in ["bot", "sign in", "confirm"]):
+                # Automatic fallback: pure Android mobile client bypass
+                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+            else:
+                raise initial_err
 
-            is_playlist = info.get("_type") == "playlist" or "entries" in info
-            entries = info.get("entries", []) if is_playlist else [info]
+        if not info:
+            return json.dumps({"error": "Failed to extract stream information."})
 
-            valid_entries = [e for e in entries if e is not None]
-            total_items = max(1, len(valid_entries))
-            title = info.get("title") or "YouTube Media"
-            uploader = info.get("uploader") or info.get("channel") or ""
-            duration = info.get("duration") or 0
-            thumbnails = info.get("thumbnails", [])
-            thumb_url = thumbnails[-1].get("url") if thumbnails else info.get("thumbnail")
+        is_playlist = info.get("_type") == "playlist" or "entries" in info
+        entries = info.get("entries", []) if is_playlist else [info]
 
-            preview_items = []
-            for idx, entry in enumerate(valid_entries[:100], start=1):
-                preview_items.append({
-                    "index": idx,
-                    "id": entry.get("id"),
-                    "title": entry.get("title") or f"Item {idx}",
-                    "duration": entry.get("duration", 0),
-                    "uploader": entry.get("uploader") or entry.get("channel", uploader),
-                    "thumbnail": entry.get("thumbnail") or thumb_url,
-                })
+        valid_entries = [e for e in entries if e is not None]
+        total_items = max(1, len(valid_entries))
+        title = info.get("title") or "YouTube Media"
+        uploader = info.get("uploader") or info.get("channel") or ""
+        duration = info.get("duration") or 0
+        thumbnails = info.get("thumbnails", [])
+        thumb_url = thumbnails[-1].get("url") if thumbnails else info.get("thumbnail")
 
-            chapters = info.get("chapters") or []
-            formats = info.get("formats", [])
-
-            # Extract available resolutions
-            resolutions = []
-            seen_res = set()
-            for f in formats:
-                h = f.get("height")
-                if h and h not in seen_res and f.get("vcodec") != "none":
-                    seen_res.add(h)
-                    resolutions.append({
-                        "res": f"{h}p",
-                        "height": h,
-                        "fps": f.get("fps"),
-                        "ext": f.get("ext"),
-                        "tbr": f.get("tbr"),
-                        "is_hdr": "hdr" in (f.get("format_note") or "").lower(),
-                    })
-            resolutions.sort(key=lambda x: x["height"], reverse=True)
-
-            return json.dumps({
-                "success": True,
-                "title": title,
-                "uploader": uploader,
-                "total_items": total_items,
-                "is_playlist": is_playlist,
-                "thumbnail": thumb_url,
-                "duration": duration,
-                "chapters_count": len(chapters),
-                "chapters": chapters[:25],
-                "available_resolutions": resolutions,
-                "audio_info": {"codec": "AAC/Opus", "bitrate": "160 kbps"},
-                "entries": preview_items,
-                "preview_items": preview_items,
+        preview_items = []
+        for idx, entry in enumerate(valid_entries[:100], start=1):
+            preview_items.append({
+                "index": idx,
+                "id": entry.get("id"),
+                "title": entry.get("title") or f"Item {idx}",
+                "duration": entry.get("duration", 0),
+                "uploader": entry.get("uploader") or entry.get("channel", uploader),
+                "thumbnail": entry.get("thumbnail") or thumb_url,
             })
+
+        chapters = info.get("chapters") or []
+        formats = info.get("formats", [])
+
+        # Extract available resolutions
+        resolutions = []
+        seen_res = set()
+        for f in formats:
+            h = f.get("height")
+            if h and h not in seen_res and f.get("vcodec") != "none":
+                seen_res.add(h)
+                resolutions.append({
+                    "res": f"{h}p",
+                    "height": h,
+                    "fps": f.get("fps"),
+                    "ext": f.get("ext"),
+                    "tbr": f.get("tbr"),
+                    "is_hdr": "hdr" in (f.get("format_note") or "").lower(),
+                })
+        resolutions.sort(key=lambda x: x["height"], reverse=True)
+
+        return json.dumps({
+            "success": True,
+            "title": title,
+            "uploader": uploader,
+            "total_items": total_items,
+            "is_playlist": is_playlist,
+            "thumbnail": thumb_url,
+            "duration": duration,
+            "chapters_count": len(chapters),
+            "chapters": chapters[:25],
+            "available_resolutions": resolutions,
+            "audio_info": {"codec": "AAC/Opus", "bitrate": "160 kbps"},
+            "entries": preview_items,
+            "preview_items": preview_items,
+        })
     except Exception as e:
         return json.dumps({"error": str(e)})
+    finally:
+        if temp_cookie_file and os.path.exists(temp_cookie_file):
+            try:
+                os.unlink(temp_cookie_file)
+            except Exception:
+                pass
 
 
 class AndroidProgressLogger:
@@ -200,6 +239,11 @@ def start_download(
             "retries": 10,
             "fragment_retries": 10,
             "concurrent_fragment_downloads": 4,  # Moderate concurrency suited for mobile CPUs
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web"],
+                }
+            },
         }
 
         if is_audio:
@@ -225,8 +269,25 @@ def start_download(
                 "when": "after_filter",
             })
 
-        if cookies_path and os.path.exists(cookies_path):
+        temp_download_cookie = None
+        cookies_text = req.get("cookies_text", "")
+        if cookies_text and cookies_text.strip():
+            try:
+                import tempfile
+                fd, tpath = tempfile.mkstemp(prefix="yt_cookie_dl_", suffix=".txt")
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(cookies_text)
+                ydl_opts["cookiefile"] = tpath
+                temp_download_cookie = tpath
+            except Exception:
+                pass
+        elif cookies_path and os.path.exists(cookies_path):
             ydl_opts["cookiefile"] = cookies_path
+        else:
+            for p in [Path("/sdcard/Download/cookies.txt"), Path("/storage/emulated/0/Download/cookies.txt")]:
+                if p.is_file():
+                    ydl_opts["cookiefile"] = str(p)
+                    break
 
         # Run extraction & download
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -241,4 +302,11 @@ def start_download(
     except Exception as e:
         if on_error_cb:
             on_error_cb.invoke(str(e))
+    finally:
+        if temp_download_cookie and os.path.exists(temp_download_cookie):
+            try:
+                os.unlink(temp_download_cookie)
+            except Exception:
+                pass
+
 

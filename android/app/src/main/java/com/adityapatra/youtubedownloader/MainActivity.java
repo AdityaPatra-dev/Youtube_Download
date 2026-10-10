@@ -166,14 +166,19 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
-        public String fetchInfo(String url) {
+        public String fetchInfo(String url, String cookies) {
             try {
                 Python py = Python.getInstance();
                 PyObject bridge = py.getModule("mobile_bridge");
-                return bridge.callAttr("fetch_video_info", url).toString();
+                return bridge.callAttr("fetch_video_info", url, cookies != null ? cookies : "").toString();
             } catch (Exception e) {
                 return "{\"error\":\"" + JSONObjectEscapeRaw(e.getMessage()) + "\"}";
             }
+        }
+
+        @JavascriptInterface
+        public String fetchInfo(String url) {
+            return fetchInfo(url, "");
         }
 
         @JavascriptInterface

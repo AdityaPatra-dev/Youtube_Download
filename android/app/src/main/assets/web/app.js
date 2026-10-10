@@ -110,7 +110,18 @@ document.addEventListener("DOMContentLoaded", () => {
   initContainerInspector();
   fetchFilesList();
   initLogStream();
+  restoreSavedCookies();
 });
+
+function restoreSavedCookies() {
+  try {
+    const saved = localStorage.getItem("yt_cookies");
+    const el = document.getElementById("cookies-input");
+    if (saved && el) {
+      el.value = saved;
+    }
+  } catch (e) {}
+}
 
 // ==============================================================================
 // 1. Light / Dark Theme Management
@@ -576,11 +587,15 @@ async function inspectUrl() {
   label.textContent = "Inspecting...";
 
   const cookieChoice = document.getElementById("browser-cookies")?.value || null;
+  const customCookies = document.getElementById("cookies-input")?.value?.trim() || "";
+  if (customCookies) {
+    try { localStorage.setItem("yt_cookies", customCookies); } catch (e) {}
+  }
 
   try {
     let data;
     if (window.AndroidBridge && typeof window.AndroidBridge.fetchInfo === 'function') {
-      const raw = window.AndroidBridge.fetchInfo(url);
+      const raw = window.AndroidBridge.fetchInfo(url, customCookies);
       data = JSON.parse(raw);
       if (data.error) throw new Error(data.error);
     } else {
@@ -766,6 +781,7 @@ async function startDownload() {
     start: startIdx,
     end: endIdx,
     cookies_from_browser: browserCookies,
+    cookies_text: document.getElementById("cookies-input")?.value?.trim() || "",
     embed_subs: embedSubs,
     embed_thumbnail: embedThumb,
     embed_chapters: embedChapters,
