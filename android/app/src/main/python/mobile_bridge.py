@@ -13,14 +13,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 QUALITY_MAP = {
-    "best": "bv*+ba/b",
-    "2160p": "bv*[height<=2160]+ba/b",
-    "4k": "bv*[height<=2160]+ba/b",
-    "1440p": "bv*[height<=1440]+ba/b",
-    "1080p": "bv*[height<=1080]+ba/b",
-    "720p": "bv*[height<=720]+ba/b",
-    "480p": "bv*[height<=480]+ba/b",
-    "360p": "bv*[height<=360]+ba/b",
+    "best": "b/bv*+ba/b",
+    "2160p": "bv*[height<=2160]+ba/b/b",
+    "4k": "bv*[height<=2160]+ba/b/b",
+    "1440p": "bv*[height<=1440]+ba/b/b",
+    "1080p": "bv*[height<=1080]+ba/b/b",
+    "720p": "b[height<=720]/bv*[height<=720]+ba/b/b",
+    "480p": "b[height<=480]/bv*[height<=480]+ba/b/b",
+    "360p": "b[height<=360]/b",
 }
 
 
@@ -223,3 +223,4 @@ def start_download(
     except Exception as e:
         if on_error_cb:
             on_error_cb.invoke(str(e))
+
