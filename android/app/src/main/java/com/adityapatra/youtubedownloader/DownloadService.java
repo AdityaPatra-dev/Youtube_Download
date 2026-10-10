@@ -93,8 +93,9 @@ public class DownloadService extends Service {
 
                         if (listener != null) {
                             listener.onProgress(data);
+                        } else {
+                            broadcastProgress("progress", data);
                         }
-                        broadcastProgress("progress", data);
                     }
                 });
 
@@ -103,8 +104,9 @@ public class DownloadService extends Service {
                     public void invoke(String msg) {
                         if (listener != null) {
                             listener.onLog(msg);
+                        } else {
+                            broadcastProgress("log", msg);
                         }
-                        broadcastProgress("log", msg);
                     }
                 });
 
@@ -114,8 +116,9 @@ public class DownloadService extends Service {
                         notificationManager.notify(NOTIFICATION_ID, buildNotification("Download Complete!", 100));
                         if (listener != null) {
                             listener.onComplete(data);
+                        } else {
+                            broadcastProgress("complete", data);
                         }
-                        broadcastProgress("complete", data);
 
                         // Scan public Downloads folder so media player apps see the file immediately
                         MediaScannerConnection.scanFile(
@@ -135,8 +138,9 @@ public class DownloadService extends Service {
                         notificationManager.notify(NOTIFICATION_ID, buildNotification("Download Error: " + error, 0));
                         if (listener != null) {
                             listener.onError(error);
+                        } else {
+                            broadcastProgress("error", error);
                         }
-                        broadcastProgress("error", error);
                         cleanup();
                     }
                 });
@@ -146,8 +150,9 @@ public class DownloadService extends Service {
             } catch (Exception e) {
                 if (listener != null) {
                     listener.onError(e.getMessage());
+                } else {
+                    broadcastProgress("error", e.getMessage());
                 }
-                broadcastProgress("error", e.getMessage());
                 cleanup();
             }
         }).start();

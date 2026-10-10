@@ -341,12 +341,12 @@ def start_download(
         # Format selector: on mobile without external FFmpeg, prefer progressive single-file streams
         if is_audio:
             format_spec = "bestaudio[ext=m4a]/bestaudio/ba/b/best"
-            output_template = os.path.join(output_dir, "%(title)s.%(ext)s")
+            output_template = os.path.join(output_dir, "%(title).100s.%(ext)s")
         else:
             h_match = re.search(r"\d+", quality)
             h = int(h_match.group(0)) if h_match else 720
             format_spec = f"b[height<={h}][ext=mp4]/b[height<={h}]/best[height<={h}][ext=mp4]/b/best"
-            output_template = os.path.join(output_dir, "%(title)s.%(ext)s")
+            output_template = os.path.join(output_dir, "%(title).100s.%(ext)s")
 
         def progress_hook(d: Dict[str, Any]):
             status = d.get("status")
@@ -383,14 +383,15 @@ def start_download(
             "logger": AndroidProgressLogger(lambda msg: on_log_cb.invoke(msg) if on_log_cb else None),
             "no_color": True,
             "continuedl": True,
-            "nooverwrites": False,
+            "nooverwrites": True,
+            "overwrites": False,
             "retries": 10,
             "fragment_retries": 10,
             "concurrent_fragment_downloads": 4,
             "postprocessors": [],  # Pure stream download - zero external ffmpeg subprocess
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "tv_embedded"],
+                    "player_client": ["android"],
                 }
             },
         }
