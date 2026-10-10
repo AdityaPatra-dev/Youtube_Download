@@ -47,41 +47,59 @@ def fetch_video_info(url: str) -> str:
             is_playlist = info.get("_type") == "playlist" or "entries" in info
             entries = info.get("entries", []) if is_playlist else [info]
 
-            items = []
-            for idx, entry in enumerate(entries, start=1):
-                if not entry:
-                    continue
-                items.append({
+            valid_entries = [e for e in entries if e is not None]
+            total_items = max(1, len(valid_entries))
+            title = info.get("title") or "YouTube Media"
+            uploader = info.get("uploader") or info.get("channel") or ""
+            duration = info.get("duration") or 0
+            thumbnails = info.get("thumbnails", [])
+            thumb_url = thumbnails[-1].get("url") if thumbnails else info.get("thumbnail")
+
+            preview_items = []
+            for idx, entry in enumerate(valid_entries[:100], start=1):
+                preview_items.append({
                     "index": idx,
                     "id": entry.get("id"),
-                    "title": entry.get("title") or "Unknown Title",
+                    "title": entry.get("title") or f"Item {idx}",
                     "duration": entry.get("duration", 0),
-                    "uploader": entry.get("uploader") or entry.get("channel", "Unknown"),
-                    "thumbnail": entry.get("thumbnail"),
+                    "uploader": entry.get("uploader") or entry.get("channel", uploader),
+                    "thumbnail": entry.get("thumbnail") or thumb_url,
                 })
 
-            formats = []
-            if not is_playlist and info.get("formats"):
-                seen = set()
-                for f in info["formats"]:
-                    h = f.get("height")
-                    if h and h not in seen and f.get("vcodec") != "none":
-                        seen.add(h)
-                        formats.append({
-                            "height": h,
-                            "label": f"{h}p",
-                            "fps": f.get("fps"),
-                            "ext": f.get("ext"),
-                        })
-                formats.sort(key=lambda x: x["height"], reverse=True)
+            chapters = info.get("chapters") or []
+            formats = info.get("formats", [])
+
+            # Extract available resolutions
+            resolutions = []
+            seen_res = set()
+            for f in formats:
+                h = f.get("height")
+                if h and h not in seen_res and f.get("vcodec") != "none":
+                    seen_res.add(h)
+                    resolutions.append({
+                        "res": f"{h}p",
+                        "height": h,
+                        "fps": f.get("fps"),
+                        "ext": f.get("ext"),
+                        "tbr": f.get("tbr"),
+                        "is_hdr": "hdr" in (f.get("format_note") or "").lower(),
+                    })
+            resolutions.sort(key=lambda x: x["height"], reverse=True)
 
             return json.dumps({
                 "success": True,
+                "title": title,
+                "uploader": uploader,
+                "total_items": total_items,
                 "is_playlist": is_playlist,
-                "title": info.get("title") or "YouTube Media",
-                "count": len(items),
-                "items": items[:50],  # Limit preview items for performance
-                "formats": formats,
+                "thumbnail": thumb_url,
+                "duration": duration,
+                "chapters_count": len(chapters),
+                "chapters": chapters[:25],
+                "available_resolutions": resolutions,
+                "audio_info": {"codec": "AAC/Opus", "bitrate": "160 kbps"},
+                "entries": preview_items,
+                "preview_items": preview_items,
             })
     except Exception as e:
         return json.dumps({"error": str(e)})

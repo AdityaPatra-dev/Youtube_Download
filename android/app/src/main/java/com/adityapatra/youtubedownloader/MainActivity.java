@@ -7,12 +7,17 @@ import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
+import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.webkit.WebViewAssetLoader;
 
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
@@ -20,6 +25,7 @@ import com.chaquo.python.android.AndroidPlatform;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG = "MainActivity";
     private WebView webView;
     private BroadcastReceiver downloadReceiver;
 
@@ -42,17 +48,42 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setDatabaseEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
 
-        webView.setWebViewClient(new WebViewClient());
-        webView.setWebChromeClient(new WebChromeClient());
+        // 3. Configure modern Android WebViewAssetLoader
+        final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .build();
 
-        // 3. Inject JavaScript bridge
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                return assetLoader.shouldInterceptRequest(request.getUrl());
+            }
+
+            @Override
+            @SuppressWarnings("deprecation")
+            public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
+                return assetLoader.shouldInterceptRequest(Uri.parse(url));
+            }
+        });
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+                Log.d(TAG, "[WebView Console] " + consoleMessage.message() + " -- Line "
+                        + consoleMessage.lineNumber() + " of " + consoleMessage.sourceId());
+                return true;
+            }
+        });
+
+        // 4. Inject JavaScript bridge
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
 
-        // 4. Load local HTML/CSS/JS frontend
-        webView.loadUrl("file:///android_asset/web/index.html");
+        // 5. Load local frontend via secure asset loader
+        webView.loadUrl("https://appassets.androidplatform.net/assets/web/index.html");
 
-        // 5. Register broadcast receiver for real-time progress updates from DownloadService
+        // 6. Register broadcast receiver for real-time progress updates from DownloadService
         downloadReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -94,7 +125,7 @@ public class MainActivity extends AppCompatActivity {
             String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (sharedText != null) {
                 webView.post(() -> {
-                    webView.evaluateJavascript("if (window.setSharedUrl) { window.setSharedUrl('" + sharedText + "'); }", null);
+                    webView.evaluateJavascript("if (window.setSharedUrl) { window.setSharedUrl('" + JSONObjectEscapeRaw(sharedText) + "'); }", null);
                 });
             }
         }
@@ -103,6 +134,20 @@ public class MainActivity extends AppCompatActivity {
     private String JSONObjectEscape(String s) {
         if (s == null) return "\"\"";
         return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "") + "\"";
+    }
+
+    private String JSONObjectEscapeRaw(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "").replace("\r", "");
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     @Override
@@ -114,6 +159,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public class WebAppInterface {
+
+        @JavascriptInterface
+        public String getSystemStatus() {
+            return "{\"ytdlp_version\":\"Embedded Engine\",\"ffmpeg_available\":true,\"aria2c_available\":false,\"detected_browsers\":[]}";
+        }
+
         @JavascriptInterface
         public String fetchInfo(String url) {
             try {
@@ -121,7 +172,7 @@ public class MainActivity extends AppCompatActivity {
                 PyObject bridge = py.getModule("mobile_bridge");
                 return bridge.callAttr("fetch_video_info", url).toString();
             } catch (Exception e) {
-                return "{\"error\":\"" + e.getMessage() + "\"}";
+                return "{\"error\":\"" + JSONObjectEscapeRaw(e.getMessage()) + "\"}";
             }
         }
 
@@ -137,4 +188,3 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
-

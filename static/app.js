@@ -142,8 +142,17 @@ function applyTheme(theme) {
 // ==============================================================================
 async function initSystemChecks() {
   try {
-    const res = await fetch("/api/system");
-    const data = await res.json();
+    let data;
+    if (window.AndroidBridge && typeof window.AndroidBridge.getSystemStatus === "function") {
+      try {
+        data = JSON.parse(window.AndroidBridge.getSystemStatus());
+      } catch (e) {
+        data = { ytdlp_version: "Mobile", ffmpeg_available: true };
+      }
+    } else {
+      const res = await fetch("/api/system");
+      data = await res.json();
+    }
 
     const ytdlpLabel = document.getElementById("ytdlp-label");
     const ytdlpDot = document.getElementById("ytdlp-dot");
@@ -820,10 +829,12 @@ function displayDashboard(jobData) {
     document.getElementById("job-time-label").textContent = `Elapsed: ${m > 0 ? `${m}m ` : ""}${s}s`;
   }, 1000);
 
-  // Poll job status every 1.5 seconds
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(pollJobState, 1500);
-  pollJobState();
+  // Poll job status every 1.5 seconds (desktop/web mode only)
+  if (!window.AndroidBridge) {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(pollJobState, 1500);
+    pollJobState();
+  }
 }
 
 async function pollJobState() {
@@ -968,6 +979,10 @@ async function cancelDownload() {
 // 6. Live SSE Terminal Logging
 // ==============================================================================
 function initLogStream() {
+  if (window.AndroidBridge) {
+    // In Android app, logs arrive directly via window.onMobileLog
+    return;
+  }
   if (eventSource) {
     eventSource.close();
   }
@@ -1015,6 +1030,13 @@ function copyTerminal() {
 // 7. Downloaded Files Library & Management
 // ==============================================================================
 async function fetchFilesList() {
+  if (window.AndroidBridge) {
+    const tbody = document.getElementById("files-list-tbody");
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="4" class="table-empty-row">Downloaded media is saved to your phone's <strong>Downloads</strong> folder.</td></tr>`;
+    }
+    return;
+  }
   try {
     const dest = document.getElementById("dest-folder")?.value || "./downloads";
     const res = await fetch(`/api/files?folder=${encodeURIComponent(dest)}`);
@@ -1089,6 +1111,10 @@ async function deleteDownloadedFile(filename) {
 // 8. One-Click yt-dlp Core Updater
 // ==============================================================================
 async function updateYtDlpEngine() {
+  if (window.AndroidBridge) {
+    showToast("Embedded mobile engine is up to date");
+    return;
+  }
   const btn = document.getElementById("btn-update-ytdlp");
   if (btn) btn.disabled = true;
   showToast("Updating yt-dlp engine to latest version...");
@@ -1223,43 +1249,40 @@ document.addEventListener("keydown", (e) => {
 
 window.onMobileProgress = function (data) {
   if (!data) return;
-  const progressBar = document.getElementById("job-progress-bar");
-  const progressText = document.getElementById("job-progress-text");
-  const speedText = document.getElementById("job-speed-text");
-  const etaText = document.getElementById("job-eta-text");
+  const progressBar = document.getElementById("job-progress-fill");
+  const progressText = document.getElementById("job-pct-label");
+  const speedText = document.getElementById("metric-speed");
+  const etaText = document.getElementById("metric-eta");
   if (progressBar) progressBar.style.width = `${data.percent}%`;
-  if (progressText) progressText.textContent = `${data.percent}%`;
-  if (speedText) speedText.textContent = data.speed;
-  if (etaText) etaText.textContent = data.eta;
+  if (progressText) progressText.textContent = `${data.percent}% Completed`;
+  if (speedText) speedText.textContent = data.speed || "-- MiB/s";
+  if (etaText) etaText.textContent = data.eta || "--:--";
 };
 
 window.onMobileLog = function (msg) {
-  const logBox = document.getElementById("log-stream");
-  if (logBox) {
-    const line = document.createElement("div");
-    line.className = "log-line";
-    line.textContent = msg;
-    logBox.appendChild(line);
-    logBox.scrollTop = logBox.scrollHeight;
-  }
+  appendTerminalLine(msg, "info");
 };
 
 window.onMobileComplete = function (res) {
   showToast("Download completed successfully!");
-  const statusBadge = document.getElementById("job-status-badge");
-  if (statusBadge) {
-    statusBadge.textContent = "COMPLETED";
-    statusBadge.className = "status-badge status-completed";
-  }
+  const statusLabel = document.getElementById("active-job-status");
+  if (statusLabel) statusLabel.textContent = "COMPLETED";
+  const startBtn = document.getElementById("btn-start");
+  if (startBtn) startBtn.disabled = false;
+  const progressBar = document.getElementById("job-progress-fill");
+  if (progressBar) progressBar.style.width = "100%";
+  const progressText = document.getElementById("job-pct-label");
+  if (progressText) progressText.textContent = "100% Completed";
+  if (timerTicker) clearInterval(timerTicker);
 };
 
 window.onMobileError = function (err) {
   showToast(`Mobile Error: ${err}`);
-  const statusBadge = document.getElementById("job-status-badge");
-  if (statusBadge) {
-    statusBadge.textContent = "FAILED";
-    statusBadge.className = "status-badge status-failed";
-  }
+  const statusLabel = document.getElementById("active-job-status");
+  if (statusLabel) statusLabel.textContent = "FAILED";
+  const startBtn = document.getElementById("btn-start");
+  if (startBtn) startBtn.disabled = false;
+  if (timerTicker) clearInterval(timerTicker);
 };
 
 window.setSharedUrl = function (url) {

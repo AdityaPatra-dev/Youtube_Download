@@ -201,6 +201,40 @@ async def serve_static(file_path: str):
     return Response(content=target.read_bytes(), media_type=mime_type)
 
 
+@app.api_route("/style.css", methods=["GET", "HEAD"])
+async def serve_root_style():
+    target = STATIC_DIR / "style.css"
+    if target.is_file():
+        return Response(content=target.read_bytes(), media_type="text/css")
+    raise HTTPException(status_code=404, detail="style.css not found.")
+
+
+@app.api_route("/app.js", methods=["GET", "HEAD"])
+async def serve_root_js():
+    target = STATIC_DIR / "app.js"
+    if target.is_file():
+        return Response(content=target.read_bytes(), media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="app.js not found.")
+
+
+@app.api_route("/icon.png", methods=["GET", "HEAD"])
+async def serve_root_icon_png():
+    target = STATIC_DIR / "icon.png"
+    if target.is_file():
+        return Response(content=target.read_bytes(), media_type="image/png")
+    raise HTTPException(status_code=404, detail="icon.png not found.")
+
+
+@app.api_route("/icon.ico", methods=["GET", "HEAD"])
+async def serve_root_icon_ico():
+    target = STATIC_DIR / "icon.ico"
+    if target.is_file():
+        return Response(content=target.read_bytes(), media_type="image/x-icon")
+    raise HTTPException(status_code=404, detail="icon.ico not found.")
+
+
+
+
 # ==============================================================================
 # API Endpoints
 # ==============================================================================
