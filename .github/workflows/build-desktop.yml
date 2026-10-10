@@ -29,7 +29,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller pywebview
+          pip install -r requirements.txt pyinstaller pywebview pythonnet
 
       - name: Download bundled Windows binaries (FFmpeg & yt-dlp)
         run: |
@@ -89,7 +89,7 @@ jobs:
   publish-release:
     name: Publish Release Assets
     needs: [build-windows, build-linux]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
@@ -105,9 +105,10 @@ jobs:
       - name: List downloaded release assets
         run: ls -la release-assets
 
-      - name: Create GitHub Release
+      - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.3.1' }}
           files: release-assets/*
           draft: false
           prerelease: false

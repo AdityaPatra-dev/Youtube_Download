@@ -6,7 +6,7 @@ echo ========================================================
 
 echo [*] Installing dependencies and packaging tools...
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt pyinstaller pywebview
+python -m pip install -r requirements.txt pyinstaller pywebview pythonnet
 
 echo [*] Downloading bundled FFmpeg, FFprobe, and yt-dlp...
 python packaging\windows\setup_ffmpeg.py

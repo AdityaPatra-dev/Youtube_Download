@@ -40,6 +40,8 @@ hiddenimports = [
     "mutagen",
     "yt_dlp",
     "webview",
+    "webview.platforms.winforms",
+    "webview.platforms.edgechromium",
 ]
 
 a = Analysis(

@@ -2,13 +2,15 @@
 """
 Desktop Window Launcher for YouTube Downloader.
 Launches the FastAPI backend and presents a dedicated standalone application window:
-1. Native pywebview window (WebKitGTK/Cocoa/WebView2)
-2. Dedicated Standalone App Mode window (via Chrome/Chromium/Edge/Brave --app)
+1. Native pywebview window (WebKitGTK / Cocoa / WebView2)
+2. Dedicated Standalone App Mode window (via Chrome / Chromium / Edge / Brave --app)
 3. Fallback to default browser tab
 """
 from __future__ import annotations
 
 import argparse
+import io
+import multiprocessing
 import os
 import platform
 import shutil
@@ -20,6 +22,30 @@ import time
 import urllib.request
 import webbrowser
 from pathlib import Path
+from typing import Optional
+
+# ------------------------------------------------------------------------------
+# 1. Critical PyInstaller / Windows Windowed Mode Initialization
+# ------------------------------------------------------------------------------
+# In PyInstaller windowed mode (console=False on Windows), sys.stdout and sys.stderr
+# are None. Standard library logging and Uvicorn formatters crash with:
+# AttributeError: 'NoneType' object has no attribute 'isatty'.
+# We redirect to a user-local log file or devnull before any other modules load.
+if sys.stdout is None or sys.stderr is None:
+    try:
+        log_dir = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "YouTubeDownloader"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "app.log"
+        _log_stream = open(log_file, "a", encoding="utf-8", buffering=1)
+        if sys.stdout is None:
+            sys.stdout = _log_stream
+        if sys.stderr is None:
+            sys.stderr = _log_stream
+    except Exception:
+        if sys.stdout is None:
+            sys.stdout = open(os.devnull, "w", encoding="utf-8")
+        if sys.stderr is None:
+            sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
 # Ensure paths and bundled binaries are configured
 from path_utils import get_base_dir, get_static_dir, is_frozen, setup_bundled_env
@@ -42,7 +68,7 @@ def find_available_port(start_port: int = 48480, max_attempts: int = 50) -> int:
     return start_port
 
 
-def wait_for_server(url: str, timeout: float = 10.0) -> bool:
+def wait_for_server(url: str, timeout: float = 12.0) -> bool:
     """Polls the server URL until it responds or timeout is reached."""
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -57,10 +83,20 @@ def wait_for_server(url: str, timeout: float = 10.0) -> bool:
 
 
 def run_server(port: int) -> None:
-    """Runs uvicorn server."""
-    import uvicorn
-    # Suppress verbose access logs in desktop mode
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    """Runs uvicorn server with safe logging configuration."""
+    try:
+        import uvicorn
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            use_colors=False,  # Prevents isatty color inspection crash in windowed apps
+        )
+        server = uvicorn.Server(config)
+        server.run()
+    except Exception as e:
+        print(f"[!] Server error: {e}", file=sys.stderr)
 
 
 def launch_standalone_app_window(url: str) -> Optional[subprocess.Popen]:
@@ -114,6 +150,8 @@ def launch_standalone_app_window(url: str) -> Optional[subprocess.Popen]:
 
 
 def main():
+    multiprocessing.freeze_support()
+
     parser = argparse.ArgumentParser(description="YouTube Downloader Desktop Application")
     parser.add_argument("--port", type=int, default=None, help="Explicit port to run on")
     parser.add_argument("--no-gui", action="store_true", help="Run without opening a GUI window or browser")
@@ -127,11 +165,11 @@ def main():
     server_thread = threading.Thread(target=run_server, args=(port,), daemon=True)
     server_thread.start()
 
-    if not wait_for_server(server_url, timeout=10.0):
-        print(f"[!] Warning: Server did not respond within 10 seconds. Attempting to launch UI anyway.")
+    if not wait_for_server(server_url, timeout=12.0):
+        print(f"[!] Warning: Server did not respond within 12 seconds. Attempting to launch UI anyway.")
 
     if args.no_gui:
-        print(f"[✓] Server is running headless at {server_url}. Press Ctrl+C to terminate.")
+        print(f"[OK] Server is running headless at {server_url}. Press Ctrl+C to terminate.")
         try:
             while True:
                 time.sleep(1)
@@ -141,22 +179,8 @@ def main():
 
     gui_opened = False
 
-    # Tier 1: Dedicated Standalone App Mode Window (Chrome/Edge/Brave without URL bar)
-    # This provides a 100% native feel with hardware acceleration and clean frameless UI
+    # Tier 1: Native pywebview window (true embedded Chromium WebView2 on Windows / WebKitGTK on Linux)
     if not args.browser_only:
-        app_proc = launch_standalone_app_window(server_url)
-        if app_proc:
-            gui_opened = True
-            print("[✓] Native application window launched.")
-            try:
-                app_proc.wait()
-            except KeyboardInterrupt:
-                pass
-            print("[*] Application window closed by user. Terminating server...")
-            sys.exit(0)
-
-    # Tier 2: Native pywebview window fallback
-    if not gui_opened and not args.browser_only:
         try:
             import webview
 
@@ -176,13 +200,39 @@ def main():
             print("[*] Desktop window closed by user. Terminating server...")
             sys.exit(0)
         except Exception as e:
-            print(f"[!] pywebview window failed ({e}).")
+            print(f"[!] pywebview window not available ({e}). Trying standalone app mode...")
+
+    # Tier 2: Dedicated Standalone App Mode Window (Chrome/Edge/Brave without URL bar)
+    if not gui_opened and not args.browser_only:
+        app_proc = launch_standalone_app_window(server_url)
+        if app_proc:
+            gui_opened = True
+            print("[OK] Native application window launched.")
+            start_wait = time.time()
+            try:
+                app_proc.wait()
+            except KeyboardInterrupt:
+                pass
+
+            # On Windows, if app_proc exited almost instantly (< 3 seconds),
+            # Chrome or Edge handed off the window to an existing background browser instance.
+            # DO NOT terminate the server! Keep serving until interrupted or closed.
+            if time.time() - start_wait < 3.0:
+                print("[*] App window active in browser process. Server running in background...")
+                try:
+                    while True:
+                        time.sleep(1)
+                except KeyboardInterrupt:
+                    pass
+
+            print("[*] Application window closed by user. Terminating server...")
+            sys.exit(0)
 
     # Tier 3: Default system browser tab fallback
     if not gui_opened:
         print(f"[*] Opening {server_url} in your default browser...")
         webbrowser.open(server_url)
-        print("[✓] App running. Press Ctrl+C in this terminal to stop.")
+        print("[OK] App running. Press Ctrl+C in this terminal to stop.")
         try:
             while True:
                 time.sleep(1)
