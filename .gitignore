@@ -31,4 +31,10 @@ dist/
 *.spec.bak
 packaging/*/bin/
 packaging/*/app-profile/
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+*.apk
+release-apk/
 

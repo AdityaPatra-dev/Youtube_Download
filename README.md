@@ -39,6 +39,7 @@ Pre-compiled, self-contained desktop builds with **embedded FFmpeg and yt-dlp**.
 | **🪟 Windows 10 / 11** | [**Download .ZIP**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-Windows-x64.zip) | Portable `.exe` | **117 MB** | Extract & double-click `YouTubeDownloader.exe` |
 | **🐧 Linux (Universal)** | [**Download .AppImage**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-x86_64.AppImage) | Portable Executable | **159 MB** | `chmod +x` & double-click to run |
 | **🐧 Linux (No FUSE)** | [**Download .tar.gz**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-Linux-x86_64.tar.gz) | Portable Tarball | **157 MB** | Extract & run `./youtube-downloader` |
+| **🤖 Android (APK)** | [**Download .APK**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader.apk) | Standalone APK | **~75 MB** | Tap to install on phone |
 
 ---
 
@@ -117,6 +118,16 @@ tar -xzf YouTube-Downloader-Linux-x86_64.tar.gz
 cd youtube-downloader
 ./youtube-downloader
 ```
+
+---
+
+### 🤖 Android Installation (.APK)
+
+1. Download [**`YouTube-Downloader.apk`**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader.apk) directly on your phone.
+2. Tap the downloaded `.apk` file in your notifications or Files app.
+3. Enable **"Install from unknown sources"** if prompted by Android.
+4. Tap **Install** and launch the app!
+> 💡 *Includes persistent background download service, full-screen UI, and integration with YouTube's Share menu!*
 
 ---
 
