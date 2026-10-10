@@ -92,24 +92,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Download Windows artifact
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: YouTube-Downloader-Windows-x64
           path: release-assets
+          merge-multiple: true
 
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: YouTube-Downloader-Linux-x86_64
-          path: release-assets
+      - name: List downloaded release assets
+        run: ls -la release-assets
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release-assets/YouTube-Downloader-Windows-x64.zip
-            release-assets/YouTube-Downloader-Linux-x86_64.AppImage
+          files: release-assets/*
           draft: false
           prerelease: false
           generate_release_notes: true
+

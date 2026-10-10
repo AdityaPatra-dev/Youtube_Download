@@ -7,3 +7,4 @@ Terminal=false
 Type=Application
 Categories=AudioVideo;Video;Network;
 StartupWMClass=youtube-downloader
+

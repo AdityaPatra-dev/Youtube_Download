@@ -26,3 +26,4 @@ if %ERRORLEVEL% EQU 0 (
     echo [ERROR] Build failed. Please check the logs above.
 )
 pause
+

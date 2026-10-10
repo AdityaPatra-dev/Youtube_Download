@@ -42,6 +42,7 @@ if [ ! -f "${APPIMAGETOOL}" ]; then
 fi
 
 echo "[*] Packaging AppImage..."
+mkdir -p "${ROOT_DIR}/dist"
 OUTPUT_APPIMAGE="${ROOT_DIR}/dist/YouTube-Downloader-x86_64.AppImage"
 ARCH=x86_64 "${APPIMAGETOOL}" --appimage-extract-and-run "${APPDIR}" "${OUTPUT_APPIMAGE}"
 
@@ -51,3 +52,4 @@ echo "========================================================"
 echo "  [SUCCESS] AppImage successfully generated!"
 echo "  Location: ${OUTPUT_APPIMAGE}"
 echo "========================================================"
+

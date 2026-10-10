@@ -92,3 +92,4 @@ def setup_bundled_env() -> None:
 
 # Initialize bundled environment paths on module load
 setup_bundled_env()
+

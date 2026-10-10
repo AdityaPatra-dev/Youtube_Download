@@ -10,3 +10,4 @@ export PYTHONHOME="${APPDIR}/usr"
 
 # Execute the packaged youtube-downloader binary
 exec "${APPDIR}/usr/bin/youtube-downloader" "$@"
+
