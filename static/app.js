@@ -1051,46 +1051,60 @@ function copyTerminal() {
 // 7. Downloaded Files Library & Management
 // ==============================================================================
 async function fetchFilesList() {
-  if (window.AndroidBridge) {
-    const tbody = document.getElementById("files-list-tbody");
-    if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="4" class="table-empty-row">Downloaded media is saved to your phone's <strong>Downloads</strong> folder.</td></tr>`;
+  if (window.AndroidBridge && typeof window.AndroidBridge.getDownloadedFiles === 'function') {
+    try {
+      const jsonStr = window.AndroidBridge.getDownloadedFiles();
+      const files = JSON.parse(jsonStr || "[]");
+      renderFilesTable(files);
+      return;
+    } catch (e) {
+      console.error("Error fetching android files", e);
     }
-    return;
   }
+
   try {
     const dest = document.getElementById("dest-folder")?.value || "./downloads";
     const res = await fetch(`/api/files?folder=${encodeURIComponent(dest)}`);
     const files = await res.json();
-
-    const tbody = document.getElementById("files-list-tbody");
-    tbody.innerHTML = "";
-
-    if (!files || files.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" class="table-empty-row">No downloaded files in directory yet.</td></tr>`;
-      return;
-    }
-
-    files.forEach((f) => {
-      const tr = document.createElement("tr");
-      const safeName = escapeHtml(f.name);
-      tr.innerHTML = `
-        <td style="font-weight: 500;">${safeName}</td>
-        <td style="font-family: var(--font-mono); font-size: 0.8rem;">${f.size_formatted}</td>
-        <td style="color: var(--text-muted); font-size: 0.8rem;">${f.modified}</td>
-        <td style="text-align: right; white-space: nowrap;">
-          <button type="button" class="btn-table-play" onclick="openMediaModal('${safeName}')">▶ Play</button>
-          <button type="button" class="btn-table-delete" onclick="deleteDownloadedFile('${safeName}')" title="Delete file">🗑️</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
+    renderFilesTable(files);
   } catch (err) {
     console.error("Error fetching files list", err);
   }
 }
 
+function renderFilesTable(files) {
+  const tbody = document.getElementById("files-list-tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  if (!files || files.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="table-empty-row">No downloaded files in directory yet.</td></tr>`;
+    return;
+  }
+
+  const isAndroid = !!window.AndroidBridge;
+  files.forEach((f) => {
+    const tr = document.createElement("tr");
+    const safeName = escapeHtml(f.name);
+    tr.innerHTML = `
+      <td style="font-weight: 500;">${safeName}</td>
+      <td style="font-family: var(--font-mono); font-size: 0.8rem;">${f.size_formatted}</td>
+      <td style="color: var(--text-muted); font-size: 0.8rem;">${f.modified}</td>
+      <td style="text-align: right; white-space: nowrap;">
+        ${isAndroid ? '<span style="font-size: 0.75rem; color: var(--color-success);">✓ In Downloads</span>' : `<button type="button" class="btn-table-play" onclick="openMediaModal('${safeName}')">▶ Play</button>
+        <button type="button" class="btn-table-delete" onclick="deleteDownloadedFile('${safeName}')" title="Delete file">🗑️</button>`}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 async function openContainingFolder() {
+  if (window.AndroidBridge && typeof window.AndroidBridge.openDownloadsFolder === 'function') {
+    window.AndroidBridge.openDownloadsFolder();
+    return;
+  }
+
   const dest = document.getElementById("dest-folder")?.value || "./downloads";
   try {
     const res = await fetch("/api/files/open", {

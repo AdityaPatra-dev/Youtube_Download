@@ -22,11 +22,21 @@ import java.io.File;
 
 public class DownloadService extends Service {
 
+    public interface DownloadListener {
+        void onProgress(String data);
+        void onLog(String msg);
+        void onComplete(String data);
+        void onError(String error);
+    }
+
+    public static volatile DownloadListener listener = null;
+
     private static final String CHANNEL_ID = "yt_download_channel";
     private static final int NOTIFICATION_ID = 1001;
 
     private PowerManager.WakeLock wakeLock;
     private NotificationManager notificationManager;
+    private long lastNotifyTime = 0;
 
     @Override
     public void onCreate() {
@@ -70,20 +80,30 @@ public class DownloadService extends Service {
                     @Override
                     public void invoke(String data) {
                         try {
-                            JSONObject obj = new JSONObject(data);
-                            int percent = (int) obj.optDouble("percent", 0);
-                            String speed = obj.optString("speed", "");
-                            String filename = obj.optString("filename", "Media");
-
-                            notificationManager.notify(NOTIFICATION_ID, buildNotification(filename + " (" + percent + "% • " + speed + ")", percent));
-                            broadcastProgress("progress", data);
+                            long now = System.currentTimeMillis();
+                            if (now - lastNotifyTime > 500) {
+                                lastNotifyTime = now;
+                                JSONObject obj = new JSONObject(data);
+                                int percent = (int) obj.optDouble("percent", 0);
+                                String speed = obj.optString("speed", "");
+                                String filename = obj.optString("filename", "Media");
+                                notificationManager.notify(NOTIFICATION_ID, buildNotification(filename + " (" + percent + "% • " + speed + ")", percent));
+                            }
                         } catch (Exception ignored) {}
+
+                        if (listener != null) {
+                            listener.onProgress(data);
+                        }
+                        broadcastProgress("progress", data);
                     }
                 });
 
                 PyObject logCb = PyObject.fromJava(new Callback() {
                     @Override
                     public void invoke(String msg) {
+                        if (listener != null) {
+                            listener.onLog(msg);
+                        }
                         broadcastProgress("log", msg);
                     }
                 });
@@ -92,6 +112,9 @@ public class DownloadService extends Service {
                     @Override
                     public void invoke(String data) {
                         notificationManager.notify(NOTIFICATION_ID, buildNotification("Download Complete!", 100));
+                        if (listener != null) {
+                            listener.onComplete(data);
+                        }
                         broadcastProgress("complete", data);
 
                         // Scan public Downloads folder so media player apps see the file immediately
@@ -110,6 +133,9 @@ public class DownloadService extends Service {
                     @Override
                     public void invoke(String error) {
                         notificationManager.notify(NOTIFICATION_ID, buildNotification("Download Error: " + error, 0));
+                        if (listener != null) {
+                            listener.onError(error);
+                        }
                         broadcastProgress("error", error);
                         cleanup();
                     }
@@ -118,6 +144,9 @@ public class DownloadService extends Service {
                 bridge.callAttr("start_download", reqObj.toString(), progressCb, logCb, completeCb, errorCb);
 
             } catch (Exception e) {
+                if (listener != null) {
+                    listener.onError(e.getMessage());
+                }
                 broadcastProgress("error", e.getMessage());
                 cleanup();
             }
@@ -127,10 +156,13 @@ public class DownloadService extends Service {
     }
 
     private void broadcastProgress(String type, String data) {
-        Intent broadcast = new Intent("com.adityapatra.youtubedownloader.PROGRESS_UPDATE");
-        broadcast.putExtra("type", type);
-        broadcast.putExtra("data", data);
-        sendBroadcast(broadcast);
+        try {
+            Intent broadcast = new Intent("com.adityapatra.youtubedownloader.PROGRESS_UPDATE");
+            broadcast.setPackage(getPackageName());
+            broadcast.putExtra("type", type);
+            broadcast.putExtra("data", data);
+            sendBroadcast(broadcast);
+        } catch (Exception ignored) {}
     }
 
     private Notification buildNotification(String text, int progress) {
@@ -178,4 +210,3 @@ public class DownloadService extends Service {
         void invoke(String arg);
     }
 }
-

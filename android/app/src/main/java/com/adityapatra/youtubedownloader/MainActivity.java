@@ -1,5 +1,6 @@
 package com.adityapatra.youtubedownloader;
 
+import android.app.DownloadManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -7,6 +8,7 @@ import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.util.Log;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
@@ -16,12 +18,22 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebViewAssetLoader;
 
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -80,10 +92,49 @@ public class MainActivity extends AppCompatActivity {
         // 4. Inject JavaScript bridge
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
 
-        // 5. Load local frontend via secure asset loader
+        // 5. Connect direct in-process listener for zero-latency progress updates
+        DownloadService.listener = new DownloadService.DownloadListener() {
+            @Override
+            public void onProgress(String data) {
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("if (window.onMobileProgress) { window.onMobileProgress(" + data + "); }", null);
+                    }
+                });
+            }
+
+            @Override
+            public void onLog(String msg) {
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("if (window.onMobileLog) { window.onMobileLog(" + JSONObjectEscape(msg) + "); }", null);
+                    }
+                });
+            }
+
+            @Override
+            public void onComplete(String data) {
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("if (window.onMobileComplete) { window.onMobileComplete(" + data + "); }", null);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("if (window.onMobileError) { window.onMobileError(" + JSONObjectEscape(error) + "); }", null);
+                    }
+                });
+            }
+        };
+
+        // 6. Load local frontend via secure asset loader
         webView.loadUrl("https://appassets.androidplatform.net/assets/web/index.html");
 
-        // 6. Register broadcast receiver for real-time progress updates from DownloadService
+        // 7. Register broadcast receiver as secondary fallback
         downloadReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -153,6 +204,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        DownloadService.listener = null;
         if (downloadReceiver != null) {
             unregisterReceiver(downloadReceiver);
         }
@@ -189,6 +241,59 @@ public class MainActivity extends AppCompatActivity {
                 startForegroundService(serviceIntent);
             } else {
                 startService(serviceIntent);
+            }
+        }
+
+        @JavascriptInterface
+        public void openDownloadsFolder() {
+            try {
+                Intent intent = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Exception e) {
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW);
+                    Uri uri = Uri.parse(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath());
+                    intent.setDataAndType(uri, "*/*");
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                } catch (Exception ex) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Saved to Downloads folder: " + Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath(), Toast.LENGTH_LONG).show());
+                }
+            }
+        }
+
+        @JavascriptInterface
+        public String getDownloadedFiles() {
+            try {
+                File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                JSONArray arr = new JSONArray();
+                if (dir.exists() && dir.isDirectory()) {
+                    File[] files = dir.listFiles((d, name) -> {
+                        String n = name.toLowerCase();
+                        return n.endsWith(".mp4") || n.endsWith(".m4a") || n.endsWith(".mp3")
+                                || n.endsWith(".webm") || n.endsWith(".mkv") || n.endsWith(".flac");
+                    });
+                    if (files != null) {
+                        Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+                        SimpleDateFormat sdf = new SimpleDateFormat("MMM d, HH:mm", Locale.getDefault());
+                        for (File f : files) {
+                            JSONObject obj = new JSONObject();
+                            obj.put("name", f.getName());
+                            long bytes = f.length();
+                            String szStr;
+                            if (bytes >= 1024 * 1024 * 1024) szStr = String.format(Locale.US, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+                            else if (bytes >= 1024 * 1024) szStr = String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0));
+                            else szStr = String.format(Locale.US, "%d KB", bytes / 1024);
+                            obj.put("size_formatted", szStr);
+                            obj.put("modified", sdf.format(new Date(f.lastModified())));
+                            arr.put(obj);
+                        }
+                    }
+                }
+                return arr.toString();
+            } catch (Exception e) {
+                return "[]";
             }
         }
     }
