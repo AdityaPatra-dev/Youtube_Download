@@ -10,6 +10,13 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+# Force UTF-8 on Windows consoles to prevent charmap encoding errors
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 TARGET_BIN_DIR = Path(__file__).parent / "bin"
 FFMPEG_ZIP_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 YTDLP_EXE_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -21,7 +28,7 @@ def download_file(url: str, dest_path: Path) -> None:
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req) as resp, open(dest_path, "wb") as out:
         shutil.copyfileobj(resp, out)
-    print(f"[✓] Downloaded {dest_path.name} ({dest_path.stat().st_size // (1024*1024)} MB)")
+    print(f"[OK] Downloaded {dest_path.name} ({dest_path.stat().st_size // (1024*1024)} MB)")
 
 
 def main():
@@ -32,14 +39,14 @@ def main():
     if not ytdlp_exe.exists():
         download_file(YTDLP_EXE_URL, ytdlp_exe)
     else:
-        print(f"[✓] yt-dlp.exe already present in {TARGET_BIN_DIR}")
+        print(f"[OK] yt-dlp.exe already present in {TARGET_BIN_DIR}")
 
     # 2. Download and extract ffmpeg.exe & ffprobe.exe
     ffmpeg_exe = TARGET_BIN_DIR / "ffmpeg.exe"
     ffprobe_exe = TARGET_BIN_DIR / "ffprobe.exe"
 
     if ffmpeg_exe.exists() and ffprobe_exe.exists():
-        print(f"[✓] ffmpeg.exe and ffprobe.exe already present in {TARGET_BIN_DIR}")
+        print(f"[OK] ffmpeg.exe and ffprobe.exe already present in {TARGET_BIN_DIR}")
         return
 
     temp_zip = TARGET_BIN_DIR / "ffmpeg.zip"
@@ -51,21 +58,20 @@ def main():
             if member.endswith("bin/ffmpeg.exe"):
                 with z.open(member) as src, open(ffmpeg_exe, "wb") as dst:
                     shutil.copyfileobj(src, dst)
-                print("[✓] Extracted ffmpeg.exe")
+                print("[OK] Extracted ffmpeg.exe")
             elif member.endswith("bin/ffprobe.exe"):
                 with z.open(member) as src, open(ffprobe_exe, "wb") as dst:
                     shutil.copyfileobj(src, dst)
-                print("[✓] Extracted ffprobe.exe")
+                print("[OK] Extracted ffprobe.exe")
 
     # Clean up temporary zip
     if temp_zip.exists():
         temp_zip.unlink()
 
-    print(f"\n[✓] All Windows dependencies ready in {TARGET_BIN_DIR.resolve()}:")
+    print(f"\n[OK] All Windows dependencies ready in {TARGET_BIN_DIR.resolve()}:")
     for f in TARGET_BIN_DIR.iterdir():
         print(f"    - {f.name} ({f.stat().st_size // 1024} KB)")
 
 
 if __name__ == "__main__":
     main()
-
