@@ -18,10 +18,11 @@
   </p>
 
   <p align="center">
-    <a href="#-one-click-downloads">📥 Download App</a> •
-    <a href="#-quick-run-options">⚡ Quick Run</a> •
-    <a href="#-key-features">✨ Features</a> •
+    <a href="#-one-click-downloads">📥 Downloads</a> •
+    <a href="#-features">✨ Features</a> •
+    <a href="#-installation-guide">📦 Installation</a> •
     <a href="#-docker-deployment">🐳 Docker</a> •
+    <a href="#-cli-usage">💻 CLI</a> •
     <a href="#-technical-deep-dive">📖 Technical Docs</a>
   </p>
 
@@ -33,93 +34,168 @@
 
 Pre-compiled, self-contained desktop builds with **embedded FFmpeg and yt-dlp**. Zero setup required!
 
-| Platform | Download | Package Type | Requirements |
-| :--- | :---: | :---: | :--- |
-| **🪟 Windows 10 / 11** | [**Download .ZIP**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-Windows-x64.zip) | Portable App (117 MB) | Extract & run `YouTubeDownloader.exe` |
-| **🐧 Linux (Universal)** | [**Download .AppImage**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-x86_64.AppImage) | Self-Contained (159 MB) | `chmod +x` and double-click |
-| **🐧 Linux (No FUSE)** | [**Download .tar.gz**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-Linux-x86_64.tar.gz) | Portable Tarball (157 MB) | Extract & run `youtube-downloader` |
+| Platform | Download Link | Package Type | Size | Setup Required |
+| :--- | :---: | :---: | :---: | :--- |
+| **🪟 Windows 10 / 11** | [**Download .ZIP**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-Windows-x64.zip) | Portable `.exe` | **117 MB** | Extract & double-click `YouTubeDownloader.exe` |
+| **🐧 Linux (Universal)** | [**Download .AppImage**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-x86_64.AppImage) | Portable Executable | **159 MB** | `chmod +x` & double-click to run |
+| **🐧 Linux (No FUSE)** | [**Download .tar.gz**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-Linux-x86_64.tar.gz) | Portable Tarball | **157 MB** | Extract & run `./youtube-downloader` |
 
 ---
 
-## ✨ Key Highlights
+## ✨ Features
 
-<div align="center">
+### 🚀 High-Performance Speed Engine
+* **16-Fragment Concurrency**: Splits video and audio streams into 16 parallel HTTP fragment downloads per item.
+* **10MB HTTP Chunking**: Maximizes throughput and minimizes TCP handshake latency.
+* **Aria2 Multi-Socket Accelerator**: Automatically uses `aria2c` for high-throughput connections if detected.
+* **Instant Start Path**: Bypasses redundant metadata scraping for single videos, initializing downloads in milliseconds.
 
-| 🚀 Turbo Concurrency | 🎬 10+ Encodings | 🛡️ Smart Resume |
-| :---: | :---: | :---: |
-| 16-fragment parallel chunk downloads with optional aria2 acceleration | 4K, 1440p, 1080p, MP4, MKV, MOV, MP3 (320k), FLAC, Opus, WAV | Native filesystem duplicate check; re-downloads deleted files cleanly |
+### 🎬 Comprehensive Video & Audio Formats
+* **Resolution Control**: Auto-detects real resolutions from YouTube manifests: `4K (2160p)`, `1440p`, `1080p FHD`, `720p HD`, `480p`, `360p`.
+* **Video Containers**: MP4 (H.264 / AV1), MKV, WebM, and Apple MOV (with automatic audio transcoding to ensure QuickTime compatibility).
+* **Hi-Res Audio Extraction**: Convert audio directly into MP3 (320kbps), M4A, FLAC (Lossless), Opus, or WAV with embedded metadata.
 
-| 🍪 Cookie Auto-Fallback | 📑 Chapter Markers | ✂️ SponsorBlock Clean |
-| :---: | :---: | :---: |
-| Auto-detects Chrome/Firefox cookies for age-restricted & member videos | Native YouTube chapters and timestamps embedded into containers | Auto-skip intros, sponsors, and outros; download cherry-picked items |
+### 🛡️ Smart Resilience & Reliability
+* **Filesystem Duplicate Detection**: Uses physical filesystem checking via `--no-overwrites`. If you delete a video, you can re-download it immediately. If you want a different quality or container, it downloads alongside without blocking!
+* **Zero Data Loss Mid-Stream Salvager**: If a download is canceled or interrupted, the system automatically runs FFmpeg faststart indexing to reconstruct and repair `.part` files into playable media.
+* **Anti-403 EJS Challenge Solver**: Runs YouTube's anti-bot JavaScript cipher challenges locally via Node.js/Deno to avoid `HTTP 403 Forbidden` errors.
+* **Browser Cookie Auto-Fallback**: Discovers active Chrome, Firefox, Brave, and Edge browser sessions or custom `cookies.txt` for age-restricted and private media.
 
-</div>
+### 🖥️ Native Desktop Experience & Port Isolation
+* **Frameless Standalone Window**: Opens as a dedicated application window without browser URL bars, tabs, or bookmarks.
+* **Port Isolation (`48480`)**: Runs the desktop engine on port `48480`, leaving developer ports like `8000` and `3000` completely free for your coding projects.
+* **Interactive Web Studio**: Built-in HTTP 206 streaming player, live real-time SSE progress telemetry, dark/light theme toggle, and playlist item cherry-picking.
 
 ---
 
-## ⚡ Quick Run Options
+## 📦 Installation Guide
 
-### Option 1: Native Desktop Application (Linux)
-Install directly into your Linux App Grid / Start Menu:
+### 🪟 Windows Installation
+
+#### Method 1: Portable Executable (Recommended — No Setup Needed)
+1. Download [**`YouTube-Downloader-Windows-x64.zip`**](https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest/download/YouTube-Downloader-Windows-x64.zip).
+2. Right-click the `.zip` file and select **Extract All...**.
+3. Open the extracted folder and double-click **`YouTubeDownloader.exe`**.
+> *Everything (FFmpeg, FFprobe, yt-dlp, and Python runtime) is embedded inside. You do not need to install Python, configure PATH, or set up dependencies!*
+
+#### Method 2: Build from Source on Windows
+If you want to compile your own `.exe`:
+```cmd
+git clone https://github.com/AdityaPatra-dev/Youtube_Download.git
+cd Youtube_Download
+packaging\windows\build_windows.bat
+```
+The script will install build dependencies, fetch static Windows binaries, compile with PyInstaller, and output `dist\YouTubeDownloader\YouTubeDownloader.exe`.
+
+---
+
+### 🐧 Linux Installation
+
+#### Method 1: Portable AppImage (Universal)
+Works across Ubuntu, Fedora, Debian, Arch, and Linux Mint without installation:
+```bash
+# 1. Make executable
+chmod +x YouTube-Downloader-x86_64.AppImage
+
+# 2. Run
+./YouTube-Downloader-x86_64.AppImage
+```
+
+#### Method 2: Native App Menu Integration (One-Click)
+Installs the app directly into your system's Start / App Menu with the official icon and terminal command:
 ```bash
 git clone https://github.com/AdityaPatra-dev/Youtube_Download.git
 cd Youtube_Download
 bash packaging/linux/install.sh
 ```
-> 💡 *Launches on isolated port `48480`, leaving port `8000` completely free for your development work.*
+* **To launch:** Press the **Super** (Windows) key and click **YouTube Downloader Pro**, or type `youtube-downloader` in any terminal.
+* **To uninstall:** Run `bash packaging/linux/uninstall.sh`.
+
+#### Method 3: Portable Tarball (For minimal distros without FUSE)
+```bash
+tar -xzf YouTube-Downloader-Linux-x86_64.tar.gz
+cd youtube-downloader
+./youtube-downloader
+```
 
 ---
 
-### Option 2: Docker Container (One-Liner)
-Run the complete production stack (Python, FFmpeg, Node.js challenge solver, Aria2) with zero dependencies:
+### 🐳 Docker Deployment
 
+Run the complete, containerized production environment (FFmpeg, Node.js solver, Aria2c accelerator pre-configured):
+
+#### Using Docker CLI:
 ```bash
 docker run -d \
   -p 8000:8000 \
   -v $(pwd)/downloads:/app/downloads \
   --name youtube-downloader \
+  --restart unless-stopped \
   adityapatra/youtube-downloader:latest
 ```
-🌐 Open **`http://localhost:8000`** in your browser. All media is saved to `./downloads`.
+
+#### Using Docker Compose:
+```yaml
+services:
+  youtube-downloader:
+    image: adityapatra/youtube-downloader:latest
+    container_name: youtube-downloader
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./downloads:/app/downloads
+    restart: unless-stopped
+```
+Run `docker compose up -d`. Open **`http://localhost:8000`** in your browser.
 
 ---
 
-### Option 3: Python Source
+### 💻 Manual Python Source Run
+
+If you want to run directly with Python:
 ```bash
-# Clone & install dependencies
+# 1. Clone repository
 git clone https://github.com/AdityaPatra-dev/Youtube_Download.git
 cd Youtube_Download
+
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# Run Desktop Window:
+# 3. Launch Desktop App (Native Window on port 48480):
 python desktop_launcher.py
 
-# Or run Headless Server:
+# Or launch Headless Server (on port 8000):
 python app.py
 ```
 
 ---
 
-## 💻 CLI Cheat Sheet
+## 💻 CLI Usage
 
-Prefer working directly from your terminal? Use [`download_playlist.py`](download_playlist.py):
+Use [`download_playlist.py`](download_playlist.py) for terminal downloads:
 
 ```bash
-# Download 1080p video or playlist (4 parallel workers)
+# 1. Download 1080p video or playlist (4 parallel workers)
 python download_playlist.py "https://youtu.be/..." -q 1080p -w 4
 
-# Extract highest-quality MP3 (320 kbps) with album art
-python download_playlist.py "https://youtu.be/..." --audio-only --audio-format mp3
+# 2. 4K Ultra HD download
+python download_playlist.py "https://youtu.be/..." -q 4k -o ./4k_videos
 
-# Download with Chrome browser session cookies
+# 3. Audio extraction to 320kbps MP3
+python download_playlist.py "https://youtu.be/..." --audio-only --audio-format mp3 -o ./music
+
+# 4. Download with Chrome browser session cookies (for age-restricted content)
 python download_playlist.py "https://youtu.be/..." --cookies-from-browser chrome
+
+# 5. Interactive Wizard Mode (guided walkthrough)
+python download_playlist.py
 ```
 
 ---
 
 ## 📖 Technical Deep Dive
 
-Curious about how the parallel engine works, how YouTube 403 bot challenges are solved, or how cross-platform desktop & mobile packaging was designed?
+Curious about how the parallel concurrency engine works, how YouTube 403 bot challenges are solved, or how cross-platform desktop & mobile packaging was designed?
 
 <div align="center">
   <br />
@@ -134,13 +210,14 @@ Curious about how the parallel engine works, how YouTube 403 bot challenges are 
 </div>
 
 <details>
-<summary><b>🔍 Click here to preview architecture topics covered in technical docs</b></summary>
+<summary><b>🔍 Preview Architecture Topics in Technical Documentation</b></summary>
 
 - **Stream Format Inspector**: Live YouTube manifest parsing without blind fallback.
 - **Node.js EJS Challenge Solver**: Local execution of anti-scraping JavaScript challenges.
 - **Mid-Stream Partial Salvager**: In-place reconstruction of interrupted `.part` files via faststart indexing.
 - **Port Isolation**: Multi-tier desktop window orchestration with port hunting (`48480`).
 - **Filesystem Duplicate Detection**: Precision skipping via `--no-overwrites` without state-drift.
+- **MOV Transcoding Fallback**: Audio recoding pipeline preventing QuickTime conversion errors.
 
 </details>
 
