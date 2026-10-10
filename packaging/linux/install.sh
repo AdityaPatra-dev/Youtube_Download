@@ -71,3 +71,4 @@ echo "  You can now launch it by:"
 echo "    1. Searching 'YouTube Downloader' in your App Menu"
 echo "    2. Running 'youtube-downloader' in any terminal"
 echo "========================================================"
+

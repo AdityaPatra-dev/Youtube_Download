@@ -25,3 +25,10 @@ downloads/
 .DS_Store
 Thumbs.db
 
+# Packaging and Build artifacts
+build/
+dist/
+*.spec.bak
+packaging/*/bin/
+packaging/*/app-profile/
+

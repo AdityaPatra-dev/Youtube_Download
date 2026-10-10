@@ -13,3 +13,4 @@ if command -v update-desktop-database >/dev/null 2>&1; then
 fi
 
 echo "[✓] Uninstalled successfully."
+

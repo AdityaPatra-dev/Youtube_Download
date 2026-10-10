@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
 Desktop Window Launcher for YouTube Downloader.
-Launches the FastAPI backend and presents a native desktop window (via pywebview),
-with fallback to default browser if no GUI toolkit is available.
+Launches the FastAPI backend and presents a dedicated standalone application window:
+1. Native pywebview window (WebKitGTK/Cocoa/WebView2)
+2. Dedicated Standalone App Mode window (via Chrome/Chromium/Edge/Brave --app)
+3. Fallback to default browser tab
 """
 from __future__ import annotations
 
 import argparse
 import os
+import platform
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -58,6 +63,56 @@ def run_server(port: int) -> None:
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
+def launch_standalone_app_window(url: str) -> Optional[subprocess.Popen]:
+    """
+    Launches a dedicated standalone application window without address bar,
+    tabs, or browser navigation controls using Chrome, Chromium, Brave, or Edge in App mode.
+    """
+    candidates = [
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "brave-browser",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+    ]
+    if platform.system() == "Windows":
+        candidates.extend([
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            "chrome.exe",
+            "msedge.exe",
+        ])
+
+    profile_dir = Path.home() / ".local" / "share" / "youtube-downloader" / "app-profile"
+    if platform.system() == "Windows":
+        profile_dir = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "YouTubeDownloader" / "app-profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    for c in candidates:
+        bin_path = shutil.which(c) or (Path(c).exists() and c)
+        if bin_path:
+            cmd = [
+                str(bin_path),
+                f"--app={url}",
+                "--window-size=1200,800",
+                f"--user-data-dir={profile_dir}",
+                "--class=youtube-downloader",
+                "--app-id=youtube-downloader",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ]
+            try:
+                proc = subprocess.Popen(cmd)
+                return proc
+            except Exception:
+                continue
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="YouTube Downloader Desktop Application")
     parser.add_argument("--port", type=int, default=None, help="Explicit port to run on")
@@ -68,7 +123,7 @@ def main():
     port = args.port or find_available_port(8000)
     server_url = f"http://127.0.0.1:{port}"
 
-    print(f"[*] Starting YouTube Downloader server on {server_url}...")
+    print(f"[*] Starting YouTube Downloader engine on {server_url}...")
     server_thread = threading.Thread(target=run_server, args=(port,), daemon=True)
     server_thread.start()
 
@@ -86,33 +141,44 @@ def main():
 
     gui_opened = False
 
-    # Attempt native pywebview window if not explicitly browser-only
+    # Tier 1: Dedicated Standalone App Mode Window (Chrome/Edge/Brave without URL bar)
+    # This provides a 100% native feel with hardware acceleration and clean frameless UI
     if not args.browser_only:
+        app_proc = launch_standalone_app_window(server_url)
+        if app_proc:
+            gui_opened = True
+            print("[✓] Native application window launched.")
+            try:
+                app_proc.wait()
+            except KeyboardInterrupt:
+                pass
+            print("[*] Application window closed by user. Terminating server...")
+            sys.exit(0)
+
+    # Tier 2: Native pywebview window fallback
+    if not gui_opened and not args.browser_only:
         try:
             import webview
 
-            icon_path = get_static_dir() / "icon.png"
             window_kwargs = {
                 "title": "YouTube Downloader Pro",
                 "url": server_url,
-                "width": 1180,
-                "height": 780,
+                "width": 1200,
+                "height": 800,
                 "min_size": (800, 600),
                 "resizable": True,
             }
 
-            print("[*] Launching native desktop window...")
+            print("[*] Launching pywebview desktop window...")
             webview.create_window(**window_kwargs)
-            # webview.start blocks until the window is closed by the user
             webview.start()
             gui_opened = True
             print("[*] Desktop window closed by user. Terminating server...")
             sys.exit(0)
-        except ImportError:
-            print("[i] pywebview not installed. Falling back to default system browser.")
         except Exception as e:
-            print(f"[!] pywebview GUI initialization failed ({e}). Falling back to default system browser.")
+            print(f"[!] pywebview window failed ({e}).")
 
+    # Tier 3: Default system browser tab fallback
     if not gui_opened:
         print(f"[*] Opening {server_url} in your default browser...")
         webbrowser.open(server_url)
@@ -127,4 +193,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
