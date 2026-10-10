@@ -30,8 +30,8 @@ setup_bundled_env()
 from app import app
 
 
-def find_available_port(start_port: int = 8000, max_attempts: int = 50) -> int:
-    """Finds the first available port starting from start_port."""
+def find_available_port(start_port: int = 48480, max_attempts: int = 50) -> int:
+    """Finds the first available port starting from start_port (default 48480 to keep 8000 free for dev)."""
     for p in range(start_port, start_port + max_attempts):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -120,7 +120,7 @@ def main():
     parser.add_argument("--browser-only", action="store_true", help="Force opening in default web browser instead of native window")
     args = parser.parse_args()
 
-    port = args.port or find_available_port(8000)
+    port = args.port or find_available_port(48480)
     server_url = f"http://127.0.0.1:{port}"
 
     print(f"[*] Starting YouTube Downloader engine on {server_url}...")
