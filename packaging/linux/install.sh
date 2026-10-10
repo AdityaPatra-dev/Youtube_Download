@@ -19,8 +19,9 @@ mkdir -p "${ICON_DIR}"
 
 # 1. Check if built binary exists, otherwise build it
 if [ ! -d "${ROOT_DIR}/dist/youtube-downloader" ]; then
-    echo "[*] Compiled binary not found. Building now..."
+    echo "[*] Compiled binary not found. Fetching static binaries and building now..."
     cd "${ROOT_DIR}"
+    python3 packaging/linux/setup_ffmpeg.py
     pyinstaller --noconfirm packaging/linux/app.spec
 fi
 

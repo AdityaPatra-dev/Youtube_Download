@@ -78,11 +78,13 @@ jobs:
           chmod +x packaging/linux/build_appimage.sh packaging/linux/AppRun
           bash packaging/linux/build_appimage.sh
 
-      - name: Upload Linux Artifact
+      - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: YouTube-Downloader-Linux-x86_64
-          path: dist/YouTube-Downloader-x86_64.AppImage
+          path: |
+            dist/YouTube-Downloader-x86_64.AppImage
+            dist/YouTube-Downloader-Linux-x86_64.tar.gz
 
   publish-release:
     name: Publish Release Assets

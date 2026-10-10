@@ -10,6 +10,9 @@ echo "========================================================"
 
 cd "${ROOT_DIR}"
 
+echo "[*] Downloading static bundled FFmpeg, FFprobe & yt-dlp for Linux..."
+python3 "${SCRIPT_DIR}/setup_ffmpeg.py"
+
 echo "[*] Compiling binary with PyInstaller..."
 pyinstaller --noconfirm "${SCRIPT_DIR}/app.spec"
 
@@ -45,11 +48,14 @@ echo "[*] Packaging AppImage..."
 mkdir -p "${ROOT_DIR}/dist"
 OUTPUT_APPIMAGE="${ROOT_DIR}/dist/YouTube-Downloader-x86_64.AppImage"
 ARCH=x86_64 "${APPIMAGETOOL}" --appimage-extract-and-run "${APPDIR}" "${OUTPUT_APPIMAGE}"
-
 chmod +x "${OUTPUT_APPIMAGE}"
 
-echo "========================================================"
-echo "  [SUCCESS] AppImage successfully generated!"
-echo "  Location: ${OUTPUT_APPIMAGE}"
-echo "========================================================"
+echo "[*] Packaging standalone Linux portable tarball (for systems without FUSE)..."
+OUTPUT_TARBALL="${ROOT_DIR}/dist/YouTube-Downloader-Linux-x86_64.tar.gz"
+tar -czf "${OUTPUT_TARBALL}" -C "${ROOT_DIR}/dist" youtube-downloader
 
+echo "========================================================"
+echo "  [SUCCESS] Linux builds successfully generated!"
+echo "  AppImage: ${OUTPUT_APPIMAGE}"
+echo "  Tarball:  ${OUTPUT_TARBALL}"
+echo "========================================================"
