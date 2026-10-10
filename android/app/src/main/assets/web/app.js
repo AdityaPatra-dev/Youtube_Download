@@ -448,7 +448,7 @@ function renderAvailableResolutions(meta) {
 
   const maxRes = resolutions.find(r => r.is_max) || resolutions[0];
   if (hintEl) {
-    hintEl.textContent = `${resolutions.length} resolutions detected • Max: ${maxRes.label}`;
+    hintEl.textContent = `${resolutions.length} resolutions detected • Max: ${maxRes.label || (maxRes.height ? maxRes.height + 'p' : 'Auto')}`;
   }
 
   // Choose default resolution: 1080p if available, else highest
@@ -468,11 +468,16 @@ function renderAvailableResolutions(meta) {
       ? res.codec_sizes_formatted[curCont]
       : (meta.is_playlist ? res.playlist_size_formatted : res.size_formatted);
 
+    const label = res.label || (res.height ? `${res.height}p` : "Auto");
+    const codec = res.vcodec || "H.264";
+    const fps = res.fps || 30;
+    const sizeStr = sizeDisplay || "~25 MB";
+
     box.innerHTML = `
       ${res.is_max ? '<span class="q-max-badge">MAX</span>' : ''}
-      <strong>${res.label}</strong>
-      <span class="q-size">${sizeDisplay}</span>
-      <span class="q-codec">${res.fps}fps • ${res.vcodec}</span>
+      <strong>${label}</strong>
+      <span class="q-size">${sizeStr}</span>
+      <span class="q-codec">${fps}fps • ${codec}</span>
     `;
     container.appendChild(box);
   });
@@ -1269,10 +1274,14 @@ window.onMobileProgress = function (data) {
   const progressText = document.getElementById("job-pct-label");
   const speedText = document.getElementById("metric-speed");
   const etaText = document.getElementById("metric-eta");
+  const sizeText = document.getElementById("metric-size");
   if (progressBar) progressBar.style.width = `${data.percent}%`;
   if (progressText) progressText.textContent = `${data.percent}% Completed`;
   if (speedText) speedText.textContent = data.speed || "-- MiB/s";
   if (etaText) etaText.textContent = data.eta || "--:--";
+  if (sizeText && data.total > 0) {
+    sizeText.textContent = `${formatBytes(data.downloaded)} / ${formatBytes(data.total)}`;
+  }
 };
 
 window.onMobileLog = function (msg) {
@@ -1290,22 +1299,27 @@ window.onMobileComplete = function (res) {
   const progressText = document.getElementById("job-pct-label");
   if (progressText) progressText.textContent = "100% Completed";
   if (timerTicker) clearInterval(timerTicker);
+  appendTerminalLine("Download completed! Saved to phone's Downloads folder.", "success");
+  fetchFilesList();
 };
 
 window.onMobileError = function (err) {
-  showToast(`Mobile Error: ${err}`);
+  showToast(`Download Error: ${err}`);
   const statusLabel = document.getElementById("active-job-status");
   if (statusLabel) statusLabel.textContent = "FAILED";
+  const progressText = document.getElementById("job-pct-label");
+  if (progressText) progressText.textContent = "Download Failed";
   const startBtn = document.getElementById("btn-start");
   if (startBtn) startBtn.disabled = false;
   if (timerTicker) clearInterval(timerTicker);
+  appendTerminalLine(`[ERROR] ${err}`, "error");
 };
 
 window.setSharedUrl = function (url) {
-  const input = document.getElementById("urlInput");
+  const input = document.getElementById("url-input");
   if (input) {
     input.value = url;
-    fetchDetails();
+    inspectUrl();
   }
 };
 
