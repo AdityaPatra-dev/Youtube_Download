@@ -88,6 +88,37 @@ Open your browser at `http://localhost:8000`. All downloaded media is saved dire
 
 ---
 
+### 🖥️ Desktop Application (Windows & Linux)
+
+You can run the downloader as a standalone desktop application or package it into native binaries:
+
+#### 1. Universal Desktop Launcher
+```bash
+python desktop_launcher.py
+```
+* Opens directly in a native desktop window (via `pywebview`) without console windows.
+* Automatically finds an open port and cleanly terminates background workers when the window closes.
+
+#### 2. Windows Executable (`.exe`)
+* Run the one-click build script:
+  ```cmd
+  packaging\windows\build_windows.bat
+  ```
+* Bundles `desktop_launcher.py`, Web UI assets, and static Windows builds of `ffmpeg.exe` and `yt-dlp.exe` into `dist/YouTubeDownloader/`.
+
+#### 3. Linux Portable AppImage
+* Run the AppImage packager:
+  ```bash
+  bash packaging/linux/build_appimage.sh
+  ```
+* Outputs `dist/YouTube-Downloader-x86_64.AppImage` which runs on Ubuntu, Fedora, Debian, Arch, and Mint.
+
+#### 4. Automated Multi-Platform GitHub Actions
+* Pushing a release tag (e.g. `v1.2.0`) or clicking **Run workflow** under GitHub Actions automatically builds both the Windows `.zip` and Linux `.AppImage` and publishes them to **GitHub Releases**.
+
+
+---
+
 ## 🌐 Local Web Interface
 
 The web studio runs on your local network with zero external cloud dependencies:

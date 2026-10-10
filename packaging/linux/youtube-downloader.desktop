@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=YouTube Downloader Pro
+Comment=High-speed parallel YouTube video and playlist downloader
+Exec=AppRun %U
+Icon=youtube-downloader
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;Network;
+StartupWMClass=youtube-downloader

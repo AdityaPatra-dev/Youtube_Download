@@ -29,6 +29,12 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from path_utils import setup_bundled_env
+    setup_bundled_env()
+except ImportError:
+    pass
+
 
 # ==============================================================================
 # Console Colors & Formatting

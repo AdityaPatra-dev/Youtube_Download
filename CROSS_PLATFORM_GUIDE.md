@@ -265,3 +265,4 @@ To prevent Android from killing downloads when the screen turns off, declare the
 | **Media Merger** | Bundled `ffmpeg.exe` | System or bundled `ffmpeg` | `ffmpeg-kit-android` |
 | **Distribution** | Direct `.exe` / Inno Setup | `.AppImage` / `.deb` | Direct `.apk` via GitHub Releases |
 | **Development Effort** | Low (1–2 days) | Low (1 day) | Medium to High (1–2 weeks) |
+

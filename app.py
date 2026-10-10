@@ -52,10 +52,15 @@ except ImportError:
         salvage_partial_downloads,
     )
 
+from path_utils import get_base_dir, get_static_dir, setup_bundled_env, is_frozen
+
+# Setup bundled binary environment (PATH)
+setup_bundled_env()
+
 app = FastAPI(title="YouTube Downloader Web API")
 
-BASE_DIR = Path(__file__).parent.resolve()
-STATIC_DIR = BASE_DIR / "static"
+BASE_DIR = get_base_dir()
+STATIC_DIR = get_static_dir()
 
 
 # ==============================================================================
