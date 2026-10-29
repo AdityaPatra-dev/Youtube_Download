@@ -178,6 +178,22 @@ class DownloadRequest(BaseModel):
     total_items: Optional[int] = None
 
 
+DownloadJobRequest = DownloadRequest
+
+CONTAINER_METADATA: Dict[str, Dict[str, Any]] = {
+    "mp4-h264": {"title": "MP4 (H.264 / AAC)", "category": "video", "badge": "Universal"},
+    "mp4-av1": {"title": "MP4 (AV1 / AAC)", "category": "video", "badge": "Next-Gen"},
+    "mkv": {"title": "MKV (Matroska)", "category": "video", "badge": "Archival"},
+    "webm": {"title": "WebM (VP9 / Opus)", "category": "video", "badge": "Web Native"},
+    "mov": {"title": "MOV (Apple QuickTime)", "category": "video", "badge": "Apple Ecosystem"},
+    "mp3": {"title": "MP3", "category": "audio", "badge": "Universal Audio"},
+    "m4a": {"title": "M4A (Apple AAC)", "category": "audio", "badge": "High Fidelity"},
+    "opus": {"title": "OPUS", "category": "audio", "badge": "Stream Copy"},
+    "flac": {"title": "FLAC (Lossless)", "category": "audio", "badge": "Studio Quality"},
+    "wav": {"title": "WAV (Uncompressed PCM)", "category": "audio", "badge": "Raw Master"},
+}
+
+
 # ==============================================================================
 # Static File & UI Serving
 # ==============================================================================
@@ -761,6 +777,136 @@ def _start_job_sync(req: DownloadRequest) -> Dict[str, Any]:
     }
 
 
+def build_download_command(
+    req: DownloadRequest,
+    output_dir: Path,
+    is_playlist: bool = False,
+    chunks_count: int = 1,
+    batch_dict: Optional[Dict[str, Any]] = None,
+    ytdlp_cmd: Optional[List[str]] = None,
+) -> List[str]:
+    """Constructs yt-dlp arguments for single video or batch segment."""
+    cmd = list(ytdlp_cmd or ["yt-dlp"])
+    if is_playlist:
+        if batch_dict and batch_dict.get("items"):
+            items_str = ",".join(str(x) for x in batch_dict["items"])
+            cmd.append(f"--playlist-items={items_str}")
+        elif batch_dict and "start_idx" in batch_dict and "end_idx" in batch_dict:
+            cmd.extend([f"--playlist-start={batch_dict['start_idx']}", f"--playlist-end={batch_dict['end_idx']}"])
+    else:
+        cmd.append("--no-playlist")
+
+    # SponsorBlock integration
+    if req.sponsorblock:
+        cmd.extend(["--sponsorblock-remove", "sponsor,intro,outro"])
+
+    # Multi-fragment speed acceleration: 16 fragments for single video or 8 for playlists
+    frag_count = 16 if not is_playlist or chunks_count == 1 else max(getattr(req, "concurrent_fragments", 8) or 8, 8)
+
+    cmd.extend([
+        "--newline",
+        f"--concurrent-fragments={frag_count}",
+        f"--retries={req.retries}",
+        f"--fragment-retries={req.retries}",
+        "--file-access-retries=5",
+        "--retry-sleep=exp=1:20",
+        "--continue",
+        "--ignore-errors",
+        "--http-chunk-size=10M",
+        "--buffer-size=16M",
+        f"--output={output_dir}/%(playlist_index)03d - %(title).100s.%(ext)s" if is_playlist else f"--output={output_dir}/%(title).100s.%(ext)s",
+    ])
+
+    # Filesystem-level duplicate skipping: checks actual disk files instead of static text archive.
+    cmd.append("--no-download-archive")
+    if getattr(req, "no_archive", False):
+        cmd.append("--force-overwrites")
+    else:
+        cmd.append("--no-overwrites")
+
+    # If aria2c is installed, utilize aria2c for turbo multi-connection speeds
+    if shutil.which("aria2c"):
+        cmd.extend([
+            "--downloader", "aria2c",
+            "--downloader-args", "aria2c:-s 16 -x 16 -k 1M -j 16"
+        ])
+
+    if req.throttled_rate:
+        cmd.append(f"--throttled-rate={req.throttled_rate}")
+    if req.cookies_from_browser:
+        if req.cookies_from_browser.startswith("file:"):
+            c_path = Path(req.cookies_from_browser.split("file:", 1)[1]).resolve()
+            if c_path.is_file():
+                cmd.append(f"--cookies={c_path}")
+        else:
+            cmd.append(f"--cookies-from-browser={req.cookies_from_browser}")
+
+    # Quality / Container / Encoding
+    audio_containers = ("mp3", "m4a", "opus", "flac", "wav")
+    if req.audio_only or req.quality == "audio" or req.container in audio_containers:
+        audio_fmt = req.container if req.container in audio_containers else (req.audio_format or "m4a")
+        cmd.extend(["--extract-audio", "--audio-format", audio_fmt, "--audio-quality", "0"])
+        if req.custom_format:
+            cmd.append(f"--format={req.custom_format}")
+        else:
+            cmd.append("--format=ba/b")
+    else:
+        h_match = re.search(r'\d+', req.quality or "")
+        height_limit = int(h_match.group()) if h_match else None
+
+        merge_fmt = None
+        if req.container == "mp4-av1":
+            merge_fmt = "mp4"
+            if height_limit:
+                fmt_str = f"bv*[height<={height_limit}][vcodec^=av01]+ba/bv*[height<={height_limit}]+ba/b"
+            else:
+                fmt_str = "bv*[vcodec^=av01]+ba/bv*+ba/b"
+        elif req.container == "mp4-h264":
+            merge_fmt = "mp4"
+            if height_limit:
+                fmt_str = f"bv*[height<={height_limit}][vcodec^=avc]+ba[acodec^=mp4a]/bv*[height<={height_limit}]+ba/b"
+            else:
+                fmt_str = "bv*[vcodec^=avc]+ba[acodec^=mp4a]/bv*+ba/b"
+        elif req.container == "webm":
+            merge_fmt = "webm"
+            if height_limit:
+                fmt_str = f"bv*[height<={height_limit}][vcodec^=vp9]+ba[acodec^=opus]/bv*[height<={height_limit}][vcodec^=av01]+ba[acodec^=opus]/bv*[height<={height_limit}]+ba/b"
+            else:
+                fmt_str = "bv*[vcodec^=vp9]+ba[acodec^=opus]/bv*[vcodec^=av01]+ba[acodec^=opus]/bv*+ba/b"
+        elif req.container == "mkv":
+            merge_fmt = "mkv"
+            fmt_str = f"bv*[height<={height_limit}]+ba/b" if height_limit else "bv*+ba/b"
+        elif req.container == "mov":
+            merge_fmt = "mov"
+            if height_limit:
+                fmt_str = f"bv*[height<={height_limit}][vcodec^=avc]+ba[acodec^=mp4a]/bv*[height<={height_limit}]+ba/b"
+            else:
+                fmt_str = "bv*[vcodec^=avc]+ba[acodec^=mp4a]/bv*+ba/b"
+        elif req.custom_format:
+            fmt_str = req.custom_format
+            merge_fmt = req.merge_format or "mp4"
+        elif height_limit:
+            fmt_str = f"bv*[height<={height_limit}]+ba/b"
+            merge_fmt = req.merge_format or "mp4"
+        else:
+            fmt_str = QUALITY_PRESETS.get(req.quality, "bv*+ba/b")
+            merge_fmt = req.merge_format or "mp4"
+
+        cmd.extend(["--format", fmt_str])
+        if merge_fmt:
+            cmd.extend(["--merge-output-format", merge_fmt])
+
+    if req.embed_subs:
+        cmd.extend(["--write-subs", "--write-auto-subs", "--embed-subs"])
+    if req.embed_thumbnail:
+        cmd.append("--embed-thumbnail")
+    if req.embed_chapters:
+        cmd.extend(["--embed-chapters", "--embed-metadata"])
+
+    cmd.append(req.url)
+    return cmd
+
+
 def _run_download_orchestrator(
     req: DownloadRequest,
     chunks: List[tuple],
@@ -788,131 +934,15 @@ def _run_download_orchestrator(
 
         log_file = logs_dir / f"batch_{batch_num:03d}_{s_idx}-{e_idx}.log"
 
-        # Build yt-dlp command
-        cmd = list(ytdlp_cmd)
-        if is_playlist:
-            if batch_dict.get("items"):
-                items_str = ",".join(str(x) for x in batch_dict["items"])
-                cmd.append(f"--playlist-items={items_str}")
-            else:
-                cmd.extend([f"--playlist-start={s_idx}", f"--playlist-end={e_idx}"])
-        else:
-            cmd.append("--no-playlist")
-
-        # SponsorBlock integration
-        if req.sponsorblock:
-            cmd.extend(["--sponsorblock-remove", "sponsor,intro,outro"])
-
-        # Multi-fragment speed acceleration: 16 fragments for single video or 8 for playlists
-        frag_count = 16 if not is_playlist or len(chunks) == 1 else max(req.concurrent_fragments, 8)
-
-        cmd.extend([
-            "--newline",
-            f"--concurrent-fragments={frag_count}",
-            f"--retries={req.retries}",
-            f"--fragment-retries={req.retries}",
-            "--file-access-retries=5",
-            "--retry-sleep=exp=1:20",
-            "--continue",
-            "--ignore-errors",
-            "--http-chunk-size=10M",
-            "--buffer-size=16M",
-            f"--output={output_dir}/%(playlist_index)03d - %(title).100s.%(ext)s" if is_playlist else f"--output={output_dir}/%(title).100s.%(ext)s",
-        ])
-
-        # Filesystem-level duplicate skipping: checks actual disk files instead of static text archive.
-        # This allows re-downloading deleted files, and downloading different resolutions/formats cleanly.
-        cmd.append("--no-download-archive")
-        if req.no_archive:
-            cmd.append("--force-overwrites")
-        else:
-            cmd.append("--no-overwrites")
-
-        # If aria2c is installed, utilize aria2c for turbo multi-connection speeds
-        if shutil.which("aria2c"):
-            cmd.extend([
-                "--downloader", "aria2c",
-                "--downloader-args", "aria2c:-s 16 -x 16 -k 1M -j 16"
-            ])
-
-        if req.throttled_rate:
-            cmd.append(f"--throttled-rate={req.throttled_rate}")
-        if req.cookies_from_browser:
-            if req.cookies_from_browser.startswith("file:"):
-                c_path = Path(req.cookies_from_browser.split("file:", 1)[1]).resolve()
-                if c_path.is_file():
-                    cmd.append(f"--cookies={c_path}")
-            else:
-                cmd.append(f"--cookies-from-browser={req.cookies_from_browser}")
-
-        # Quality / Container / Encoding
-        audio_containers = ("mp3", "m4a", "opus", "flac", "wav")
-        if req.audio_only or req.quality == "audio" or req.container in audio_containers:
-            audio_fmt = req.container if req.container in audio_containers else (req.audio_format or "m4a")
-            cmd.extend(["--extract-audio", f"--audio-format={audio_fmt}", "--audio-quality=0"])
-            if req.custom_format:
-                cmd.append(f"--format={req.custom_format}")
-            else:
-                cmd.append("--format=ba/b")
-        else:
-            h_match = re.search(r'\d+', req.quality)
-            height_limit = int(h_match.group()) if h_match else None
-
-            merge_fmt = None
-            recode_fmt = None
-            if req.container == "mp4-av1":
-                merge_fmt = "mp4"
-                if height_limit:
-                    fmt_str = f"bv*[height<={height_limit}][vcodec^=av01]+ba/bv*[height<={height_limit}]+ba/b"
-                else:
-                    fmt_str = "bv*[vcodec^=av01]+ba/bv*+ba/b"
-            elif req.container == "mp4-h264":
-                merge_fmt = "mp4"
-                if height_limit:
-                    fmt_str = f"bv*[height<={height_limit}][vcodec^=avc]+ba[acodec^=mp4a]/bv*[height<={height_limit}]+ba/b"
-                else:
-                    fmt_str = "bv*[vcodec^=avc]+ba[acodec^=mp4a]/bv*+ba/b"
-            elif req.container == "webm":
-                merge_fmt = "webm"
-                if height_limit:
-                    fmt_str = f"bv*[height<={height_limit}][vcodec^=vp9]+ba[acodec^=opus]/bv*[height<={height_limit}][vcodec^=av01]+ba[acodec^=opus]/bv*[height<={height_limit}]+ba/b"
-                else:
-                    fmt_str = "bv*[vcodec^=vp9]+ba[acodec^=opus]/bv*[vcodec^=av01]+ba[acodec^=opus]/bv*+ba/b"
-            elif req.container == "mkv":
-                merge_fmt = "mkv"
-                fmt_str = f"bv*[height<={height_limit}]+ba/b" if height_limit else "bv*+ba/b"
-            elif req.container == "mov":
-                # QuickTime MOV container does not support Opus audio or AV1/VP9 video without transcoding.
-                # Prioritize H.264 + AAC, and use --recode-video=mov so any incompatible codec is properly converted.
-                recode_fmt = "mov"
-                if height_limit:
-                    fmt_str = f"bv*[height<={height_limit}][vcodec^=avc]+ba[acodec^=mp4a]/bv*[height<={height_limit}]+ba/b"
-                else:
-                    fmt_str = "bv*[vcodec^=avc]+ba[acodec^=mp4a]/bv*+ba/b"
-            elif req.custom_format:
-                fmt_str = req.custom_format
-                merge_fmt = req.merge_format or "mp4"
-            elif height_limit:
-                fmt_str = f"bv*[height<={height_limit}]+ba/b"
-                merge_fmt = req.merge_format or "mp4"
-            else:
-                fmt_str = QUALITY_PRESETS.get(req.quality, "bv*+ba/b")
-                merge_fmt = req.merge_format or "mp4"
-
-            cmd.append(f"--format={fmt_str}")
-            if recode_fmt:
-                cmd.append(f"--recode-video={recode_fmt}")
-            elif merge_fmt:
-                cmd.append(f"--merge-output-format={merge_fmt}")
-
-        if req.embed_subs:
-            cmd.extend(["--write-subs", "--write-auto-subs", "--embed-subs"])
-        if req.embed_thumbnail:
-            cmd.append("--embed-thumbnail")
-        if req.embed_chapters:
-            cmd.extend(["--embed-chapters", "--embed-metadata"])
-
-        cmd.append(req.url)
+        # Build yt-dlp command using unified builder
+        cmd = build_download_command(
+            req=req,
+            output_dir=output_dir,
+            is_playlist=is_playlist,
+            chunks_count=len(chunks),
+            batch_dict=batch_dict,
+            ytdlp_cmd=ytdlp_cmd,
+        )
 
         start_time = time.time()
         log_lines = []
