@@ -120,10 +120,19 @@ public class DownloadService extends Service {
                             broadcastProgress("complete", data);
                         }
 
-                        // Scan public Downloads folder so media player apps see the file immediately
+                        // Scan public Downloads file/folder so media player apps see the file immediately
+                        String scanTarget = publicDownloadDir.getAbsolutePath();
+                        try {
+                            JSONObject obj = new JSONObject(data);
+                            String f = obj.optString("file", "");
+                            if (!f.isEmpty() && new File(f).exists()) {
+                                scanTarget = f;
+                            }
+                        } catch (Exception ignored) {}
+
                         MediaScannerConnection.scanFile(
                                 DownloadService.this,
-                                new String[]{publicDownloadDir.getAbsolutePath()},
+                                new String[]{scanTarget},
                                 null,
                                 null
                         );

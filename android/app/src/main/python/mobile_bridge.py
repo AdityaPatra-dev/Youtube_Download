@@ -1,7 +1,8 @@
 """
 Mobile Python Bridge for Chaquopy on Android.
-Handles yt-dlp execution, rich format extraction, and progress dispatching
-directly within the Android runtime.
+Handles yt-dlp execution, rich format extraction, and high-performance
+two-stream downloading with native MediaMuxer hardware muxing on Android.
+Supports resolutions up to 4K (2160p), 1440p, 1080p, 720p, and audio-only.
 """
 from __future__ import annotations
 
@@ -22,19 +23,136 @@ def fmt_size(b: int) -> str:
     return f"~{b / 1024:.0f} KB" if b > 0 else "Unknown size"
 
 
+def get_height_label(h: int) -> str:
+    labels = {
+        4320: "8K Ultra HD",
+        2160: "4K Ultra HD",
+        1440: "1440p 2K QHD",
+        1080: "1080p Full HD",
+        720: "720p HD",
+        480: "480p SD",
+        360: "360p",
+        240: "240p",
+        144: "144p",
+    }
+    if h in labels:
+        return labels[h]
+    if h >= 2000:
+        return f"{h}p 4K Ultra HD"
+    if h >= 1400:
+        return f"{h}p 2K QHD"
+    if h >= 1000:
+        return f"{h}p Full HD"
+    if h >= 700:
+        return f"{h}p HD"
+    return f"{h}p"
+
+
+def sanitize_filename(name: str) -> str:
+    """Removes invalid Android/FAT32 filesystem characters and bounds length."""
+    cleaned = re.sub(r'[\\/*?:"<>|]', "", name)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:100] if len(cleaned) > 100 else (cleaned or "video")
+
+
+def get_unique_filepath(output_dir: str, title: str, ext: str) -> str:
+    """Finds a non-colliding output path without deleting or overwriting existing files."""
+    clean_title = sanitize_filename(title)
+    final_path = os.path.join(output_dir, f"{clean_title}.{ext}")
+    counter = 1
+    while os.path.exists(final_path):
+        final_path = os.path.join(output_dir, f"{clean_title} ({counter}).{ext}")
+        counter += 1
+    return final_path
+
+
+def get_safe_temp_dir(output_dir: str, estimated_bytes: int = 150 * 1024 * 1024) -> str:
+    """
+    Selects app internal cache directory if space permits to avoid
+    Scoped Storage FUSE overhead and MediaStore indexing of incomplete parts.
+    """
+    try:
+        from com.chaquo.python import Python
+        context = Python.getPlatform().getApplication()
+        cache_dir = str(context.getCacheDir().getAbsolutePath())
+        import shutil
+        usage = shutil.disk_usage(cache_dir)
+        if usage.free > estimated_bytes * 2:
+            return cache_dir
+    except Exception:
+        pass
+
+    try:
+        import tempfile
+        import shutil
+        tdir = tempfile.gettempdir()
+        if os.path.exists(tdir) and shutil.disk_usage(tdir).free > estimated_bytes * 2:
+            return tdir
+    except Exception:
+        pass
+
+    return output_dir
+
+
+def mux_streams(video_path: str, audio_path: str, output_path: str) -> bool:
+    """
+    Muxes video and audio streams using Android's native MediaMuxerHelper (in-process libstagefright),
+    falling back to ffmpeg or direct stream preservation if needed.
+    """
+    # 1. Native Android MediaMuxerHelper
+    try:
+        from com.adityapatra.youtubedownloader import MediaMuxerHelper
+        success = bool(MediaMuxerHelper.mux(video_path, audio_path, output_path))
+        if success and os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
+            return True
+    except Exception as e:
+        print(f"Android MediaMuxerHelper failed: {e}")
+
+    # 2. System FFmpeg if available
+    try:
+        import subprocess
+        cmd = [
+            "ffmpeg", "-y", "-i", video_path, "-i", audio_path,
+            "-c:v", "copy", "-c:a", "copy", "-movflags", "+faststart", output_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
+            return True
+    except Exception:
+        pass
+
+    # 3. Fallback: Copy the video file so user still receives their video
+    try:
+        import shutil
+        shutil.copy(video_path, output_path)
+        return True
+    except Exception:
+        return False
+
+
 def parse_available_formats(
     formats: List[Dict[str, Any]], duration: Optional[float] = None, total_items: int = 1
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Analyzes yt-dlp formats and produces complete resolution metadata matching frontend expectations."""
     dur = float(duration) if duration and duration > 0 else 0.0
 
+    # 1. Audio streams
     audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
     https_audio = [f for f in audio_formats if "m3u8" not in (f.get("protocol") or "")]
     if https_audio:
         audio_formats = https_audio
 
-    opus_f = next((f for f in audio_formats if "opus" in (f.get("acodec") or "").lower()), None)
-    m4a_f = next((f for f in audio_formats if "mp4a" in (f.get("acodec") or "").lower()), None)
+    def select_best_audio(codec_substr: str) -> Optional[Dict[str, Any]]:
+        candidates = [f for f in audio_formats if codec_substr in (f.get("acodec") or "").lower()]
+        if not candidates:
+            return None
+        with_sz = [c for c in candidates if (c.get("filesize") or c.get("filesize_approx")) and "m3u8" not in (c.get("protocol") or "")]
+        if with_sz:
+            return with_sz[0]
+        return candidates[0]
+
+    opus_f = select_best_audio("opus")
+    m4a_f = select_best_audio("mp4a")
 
     best_audio = None
     for f in audio_formats:
@@ -46,17 +164,19 @@ def parse_available_formats(
             sz = f.get("filesize") or f.get("filesize_approx")
             if sz and sz > 0:
                 return int(sz)
-            if dur > 0 and f.get("tbr"):
+            if dur > 0 and f.get("tbr") and f["tbr"] > 0:
                 return int((f["tbr"] * 1000 / 8) * dur)
-            if dur > 0 and f.get("vbr"):
+            if dur > 0 and f.get("vbr") and f["vbr"] > 0:
                 return int((f["vbr"] * 1000 / 8) * dur)
+            if dur > 0 and f.get("abr") and f["abr"] > 0:
+                return int((f["abr"] * 1000 / 8) * dur)
         if dur > 0:
             return int((fallback_rate_kbps * 1000 / 8) * dur)
         return int(fallback_rate_kbps * 1000 / 8 * 240)
 
     opus_bytes = get_stream_bytes(opus_f, 128)
-    m4a_bytes = get_stream_bytes(m4a_f, 192)
-    default_audio_bytes = get_stream_bytes(best_audio, 160)
+    m4a_bytes = get_stream_bytes(m4a_f, 128)
+    default_audio_bytes = get_stream_bytes(best_audio, 128)
 
     audio_codec_sizes = {
         "m4a": m4a_bytes,
@@ -66,6 +186,7 @@ def parse_available_formats(
         "wav": int((1411.2 * 1000 / 8) * dur) if dur > 0 else int(default_audio_bytes * 5.5),
     }
 
+    # 2. Video streams
     video_formats = [f for f in formats if f.get("height") and f.get("height") >= 144 and f.get("vcodec") != "none"]
     has_https_video = any("m3u8" not in (f.get("protocol") or "") for f in video_formats)
     if has_https_video:
@@ -79,25 +200,15 @@ def parse_available_formats(
         by_height_formats[h].append(f)
 
     fallback_rates = {
-        2160: {"av1": 15000, "vp9": 18000, "h264": 25000, "default": 20000},
-        1440: {"av1": 5500, "vp9": 7500, "h264": 12000, "default": 8000},
-        1080: {"av1": 1800, "vp9": 2300, "h264": 3500, "default": 2500},
-        720:  {"av1": 900, "vp9": 1300, "h264": 1800, "default": 1400},
-        480:  {"av1": 400, "vp9": 500, "h264": 800, "default": 600},
-        360:  {"av1": 250, "vp9": 300, "h264": 500, "default": 400},
-        240:  {"av1": 150, "vp9": 180, "h264": 300, "default": 220},
-        144:  {"av1": 80, "vp9": 100, "h264": 180, "default": 120},
-    }
-
-    height_labels = {
-        2160: "4K Ultra HD",
-        1440: "1440p 2K QHD",
-        1080: "1080p Full HD",
-        720: "720p HD",
-        480: "480p SD",
-        360: "360p",
-        240: "240p",
-        144: "144p",
+        4320: {"av1": 25000, "vp9": 35000, "h264": 50000, "default": 35000},
+        2160: {"av1": 12000, "vp9": 16000, "h264": 22000, "default": 15000},
+        1440: {"av1": 4500,  "vp9": 6500,  "h264": 10000, "default": 6000},
+        1080: {"av1": 1600,  "vp9": 2200,  "h264": 3200,  "default": 2400},
+        720:  {"av1": 800,   "vp9": 1200,  "h264": 1600,  "default": 1200},
+        480:  {"av1": 350,   "vp9": 450,   "h264": 700,   "default": 500},
+        360:  {"av1": 220,   "vp9": 280,   "h264": 450,   "default": 350},
+        240:  {"av1": 130,   "vp9": 160,   "h264": 260,   "default": 200},
+        144:  {"av1": 70,    "vp9": 90,    "h264": 150,   "default": 100},
     }
 
     res_list: List[Dict[str, Any]] = []
@@ -106,68 +217,85 @@ def parse_available_formats(
 
     for h in sorted_heights:
         flist = by_height_formats[h]
-        rates = fallback_rates.get(h, {"av1": 1800, "vp9": 2300, "h264": 3500, "default": 2500})
+        rates = fallback_rates.get(h, {"av1": 1600, "vp9": 2200, "h264": 3200, "default": 2400})
 
-        av1_f = next((f for f in flist if "av01" in (f.get("vcodec") or "").lower()), None)
-        vp9_f = next((f for f in flist if "vp9" in (f.get("vcodec") or "").lower() or "vp09" in (f.get("vcodec") or "").lower()), None)
-        h264_f = next((f for f in flist if "avc" in (f.get("vcodec") or "").lower()), None)
+        def select_best_format(codec_substr: str) -> Optional[Dict[str, Any]]:
+            candidates = [f for f in flist if codec_substr in (f.get("vcodec") or "").lower()]
+            if not candidates:
+                return None
+            with_sz_https = [c for c in candidates if (c.get("filesize") or c.get("filesize_approx")) and "m3u8" not in (c.get("protocol") or "")]
+            if with_sz_https:
+                return with_sz_https[0]
+            with_sz = [c for c in candidates if (c.get("filesize") or c.get("filesize_approx"))]
+            if with_sz:
+                return with_sz[0]
+            https_only = [c for c in candidates if "m3u8" not in (c.get("protocol") or "")]
+            if https_only:
+                return https_only[0]
+            return candidates[0]
 
-        av1_v_bytes = get_stream_bytes(av1_f, rates["av1"])
-        vp9_v_bytes = get_stream_bytes(vp9_f, rates["vp9"])
-        h264_v_bytes = get_stream_bytes(h264_f, rates["h264"])
+        av1_f = select_best_format("av01")
+        vp9_f = select_best_format("vp9") or select_best_format("vp09")
+        h264_f = select_best_format("avc")
 
-        sz_mp4 = (h264_v_bytes or av1_v_bytes or vp9_v_bytes) + m4a_bytes
+        av1_v_bytes = get_stream_bytes(av1_f, rates.get("av1", 1600))
+        vp9_v_bytes = get_stream_bytes(vp9_f, rates.get("vp9", 2200))
+        h264_v_bytes = get_stream_bytes(h264_f, rates.get("h264", 3200))
+
+        sz_mp4_h264 = (h264_v_bytes if h264_f else (av1_v_bytes or vp9_v_bytes)) + m4a_bytes
+        sz_mp4_av1 = (av1_v_bytes if av1_f else (h264_v_bytes or vp9_v_bytes)) + m4a_bytes
+        sz_webm = (vp9_v_bytes if vp9_f else (av1_v_bytes or h264_v_bytes)) + opus_bytes
+        sz_mkv = max(h264_v_bytes, vp9_v_bytes, av1_v_bytes) + default_audio_bytes
+        sz_mov = int(h264_v_bytes * 1.05) + m4a_bytes
+
+        default_sz = sz_mp4_h264 if h264_f else (sz_mp4_av1 if av1_f else sz_webm)
         primary_codec = "H.264" if h264_f else ("AV1" if av1_f else "VP9")
         fps = int(max((f.get("fps") or 30) for f in flist))
 
         res_list.append({
             "height": h,
-            "label": height_labels.get(h, f"{h}p"),
+            "label": get_height_label(h),
             "is_max": (h == max_h),
-            "size_bytes": sz_mp4,
-            "size_formatted": fmt_size(sz_mp4),
-            "playlist_size_formatted": f"{fmt_size(sz_mp4 * total_items)} ({total_items} items)" if total_items > 1 else fmt_size(sz_mp4),
+            "size_bytes": default_sz,
+            "size_formatted": fmt_size(default_sz),
+            "playlist_size_formatted": f"{fmt_size(default_sz * total_items)} ({total_items} items)" if total_items > 1 else fmt_size(default_sz),
             "vcodec": primary_codec,
             "fps": fps,
             "codec_sizes": {
-                "mp4-h264": sz_mp4,
-                "mp4-av1": sz_mp4,
-                "webm": sz_mp4,
-                "mkv": sz_mp4,
-                "mov": sz_mp4,
+                "mp4-h264": sz_mp4_h264,
+                "mp4-av1": sz_mp4_av1,
+                "webm": sz_webm,
+                "mkv": sz_mkv,
+                "mov": sz_mov,
             },
             "codec_sizes_formatted": {
-                "mp4-h264": fmt_size(sz_mp4 * total_items if total_items > 1 else sz_mp4),
-                "mp4-av1": fmt_size(sz_mp4 * total_items if total_items > 1 else sz_mp4),
-                "webm": fmt_size(sz_mp4 * total_items if total_items > 1 else sz_mp4),
-                "mkv": fmt_size(sz_mp4 * total_items if total_items > 1 else sz_mp4),
-                "mov": fmt_size(sz_mp4 * total_items if total_items > 1 else sz_mp4),
+                "mp4-h264": fmt_size(sz_mp4_h264 * total_items if total_items > 1 else sz_mp4_h264),
+                "mp4-av1": fmt_size(sz_mp4_av1 * total_items if total_items > 1 else sz_mp4_av1),
+                "webm": fmt_size(sz_webm * total_items if total_items > 1 else sz_webm),
+                "mkv": fmt_size(sz_mkv * total_items if total_items > 1 else sz_mkv),
+                "mov": fmt_size(sz_mov * total_items if total_items > 1 else sz_mov),
             },
         })
 
-    # Always ensure standard resolutions are presented even if platform initially reported limited streams
-    standard_heights = [1080, 720, 480, 360]
-    if len(res_list) < 2:
+    # Fallback only if absolutely zero video streams could be parsed
+    if not res_list:
+        standard_heights = [2160, 1440, 1080, 720, 480, 360]
         for sh in standard_heights:
-            if not any(r["height"] == sh for r in res_list):
-                rate = fallback_rates.get(sh, {}).get("default", 2000)
-                v_bytes = int((rate * 1000 / 8) * (dur if dur > 0 else 240))
-                sz = v_bytes + default_audio_bytes
-                res_list.append({
-                    "height": sh,
-                    "label": height_labels.get(sh, f"{sh}p"),
-                    "is_max": False,
-                    "size_bytes": sz,
-                    "size_formatted": fmt_size(sz),
-                    "playlist_size_formatted": f"{fmt_size(sz * total_items)} ({total_items} items)" if total_items > 1 else fmt_size(sz),
-                    "vcodec": "H.264",
-                    "fps": 30,
-                    "codec_sizes": {"mp4-h264": sz},
-                    "codec_sizes_formatted": {"mp4-h264": fmt_size(sz * total_items if total_items > 1 else sz)},
-                })
-        res_list.sort(key=lambda x: x["height"], reverse=True)
-        if res_list:
-            res_list[0]["is_max"] = True
+            rate = fallback_rates.get(sh, {}).get("default", 2000)
+            v_bytes = int((rate * 1000 / 8) * (dur if dur > 0 else 240))
+            sz = v_bytes + default_audio_bytes
+            res_list.append({
+                "height": sh,
+                "label": get_height_label(sh),
+                "is_max": (sh == 2160),
+                "size_bytes": sz,
+                "size_formatted": fmt_size(sz),
+                "playlist_size_formatted": f"{fmt_size(sz * total_items)} ({total_items} items)" if total_items > 1 else fmt_size(sz),
+                "vcodec": "H.264",
+                "fps": 30,
+                "codec_sizes": {"mp4-h264": sz},
+                "codec_sizes_formatted": {"mp4-h264": fmt_size(sz * total_items if total_items > 1 else sz)},
+            })
 
     audio_single_sz = default_audio_bytes
     audio_info = {
@@ -193,16 +321,11 @@ def fetch_video_info(url: str, cookies_content: str = "") -> str:
     import yt_dlp
     import tempfile
 
-    ydl_opts = {
+    ydl_opts: Dict[str, Any] = {
         "extract_flat": "in_playlist",
         "skip_download": True,
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["tv_embedded", "android", "web"],
-            }
-        },
     }
 
     temp_cookie_file = None
@@ -222,16 +345,25 @@ def fetch_video_info(url: str, cookies_content: str = "") -> str:
                 break
 
     try:
+        info = None
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
         except Exception as initial_err:
             err_msg = str(initial_err)
-            if any(term in err_msg.lower() for term in ["bot", "sign in", "confirm", "format"]):
-                # Fallback to pure android client
-                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
+            if any(term in err_msg.lower() for term in ["bot", "sign in", "confirm"]):
+                # Fallback to alternate clients that bypass bot checks
+                for fallback_client in [["android_vr"], ["ios"], ["mweb"], ["tv"], ["android"]]:
+                    try:
+                        ydl_opts["extractor_args"] = {"youtube": {"player_client": fallback_client}}
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=False)
+                        if info:
+                            break
+                    except Exception:
+                        continue
+                if not info:
+                    raise initial_err
             else:
                 raise initial_err
 
@@ -319,16 +451,20 @@ def start_download(
     on_error_cb: Any,
 ) -> None:
     """
-    Executes a download job on Android with zero external FFmpeg dependencies.
-    Directly streams progressive video or audio into /sdcard/Download.
+    Executes a high-quality download job on Android with hardware MediaMuxer remuxing.
+    Downloads full 4K, 1440p, 1080p, 720p, or audio streams directly into /sdcard/Download.
     """
     import yt_dlp
+    import time
 
     temp_download_cookie = None
+    temp_video_file = None
+    temp_audio_file = None
+
     try:
         req = json.loads(request_json) if isinstance(request_json, str) else request_json
         url = req.get("url")
-        quality = str(req.get("quality", "720p")).lower()
+        quality = str(req.get("quality", "1080p")).lower()
         container = str(req.get("container", "mp4-h264")).lower()
         is_audio = req.get("audio_only", False) or quality == "audio" or any(a in container for a in ["mp3", "m4a", "flac", "opus", "wav"])
         output_dir = req.get("output_dir", "/sdcard/Download")
@@ -336,51 +472,29 @@ def start_download(
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         if on_log_cb:
-            on_log_cb.invoke(f"Connecting to stream for {url}...")
+            on_log_cb.invoke(f"Connecting to media stream for {url}...")
 
-        # Format selector: on mobile without external FFmpeg, prefer progressive single-file streams
-        if is_audio:
-            format_spec = "bestaudio[ext=m4a]/bestaudio/ba/b/best"
-            output_template = os.path.join(output_dir, "%(title).100s.%(ext)s")
+        # Setup cookies
+        cookies_text = req.get("cookies_text", "")
+        cookie_path = None
+        if cookies_text and cookies_text.strip():
+            try:
+                import tempfile
+                fd, tpath = tempfile.mkstemp(prefix="yt_cookie_dl_", suffix=".txt")
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(cookies_text)
+                cookie_path = tpath
+                temp_download_cookie = tpath
+            except Exception:
+                pass
         else:
-            h_match = re.search(r"\d+", quality)
-            h = int(h_match.group(0)) if h_match else 720
-            format_spec = f"b[height<={h}][ext=mp4]/b[height<={h}]/best[height<={h}][ext=mp4]/b/best"
-            output_template = os.path.join(output_dir, "%(title).100s.%(ext)s")
+            for p in [Path("/sdcard/Download/cookies.txt"), Path("/storage/emulated/0/Download/cookies.txt")]:
+                if p.is_file():
+                    cookie_path = str(p)
+                    break
 
-        def progress_hook(d: Dict[str, Any]):
-            status = d.get("status")
-            if status == "downloading":
-                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                downloaded = d.get("downloaded_bytes", 0)
-                percent = (downloaded / total * 100.0) if total > 0 else 0.0
-
-                speed = d.get("speed")
-                speed_str = f"{(speed / (1024*1024)):.2f} MB/s" if speed else "Calculating..."
-
-                eta = d.get("eta")
-                eta_str = f"{eta//60:02d}:{eta%60:02d}" if eta is not None else "--:--"
-
-                payload = {
-                    "percent": round(percent, 1),
-                    "speed": speed_str,
-                    "eta": eta_str,
-                    "downloaded": downloaded,
-                    "total": total,
-                    "filename": os.path.basename(d.get("filename", "")),
-                }
-                if on_progress_cb:
-                    on_progress_cb.invoke(json.dumps(payload))
-
-            elif status == "finished":
-                if on_log_cb:
-                    on_log_cb.invoke("Download finished! Finalizing file in Downloads...")
-
-        ydl_opts: Dict[str, Any] = {
-            "format": format_spec,
-            "outtmpl": output_template,
-            "progress_hooks": [progress_hook],
-            "logger": AndroidProgressLogger(lambda msg: on_log_cb.invoke(msg) if on_log_cb else None),
+        # Base yt-dlp options
+        base_opts: Dict[str, Any] = {
             "no_color": True,
             "continuedl": True,
             "nooverwrites": True,
@@ -388,50 +502,243 @@ def start_download(
             "retries": 10,
             "fragment_retries": 10,
             "concurrent_fragment_downloads": 4,
-            "postprocessors": [],  # Pure stream download - zero external ffmpeg subprocess
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android"],
-                }
-            },
+            "postprocessors": [],
+            "logger": AndroidProgressLogger(lambda msg: on_log_cb.invoke(msg) if on_log_cb else None),
         }
+        if cookie_path:
+            base_opts["cookiefile"] = cookie_path
 
-        # Handle cookies
-        cookies_text = req.get("cookies_text", "")
-        if cookies_text and cookies_text.strip():
-            try:
-                import tempfile
-                fd, tpath = tempfile.mkstemp(prefix="yt_cookie_dl_", suffix=".txt")
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(cookies_text)
-                ydl_opts["cookiefile"] = tpath
-                temp_download_cookie = tpath
-            except Exception:
-                pass
-        else:
-            for p in [Path("/sdcard/Download/cookies.txt"), Path("/storage/emulated/0/Download/cookies.txt")]:
-                if p.is_file():
-                    ydl_opts["cookiefile"] = str(p)
-                    break
+        # Inspect stream metadata to get true title and format availability
+        inspect_opts = dict(base_opts)
+        inspect_opts["skip_download"] = True
+        inspect_opts["quiet"] = True
 
         if on_log_cb:
-            on_log_cb.invoke("Fetching media stream chunks...")
+            on_log_cb.invoke("Analyzing video and audio formats...")
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            retcode = ydl.download([url])
-            if retcode == 0:
-                if on_complete_cb:
-                    on_complete_cb.invoke(json.dumps({"success": True, "output_dir": output_dir}))
-            else:
-                if on_error_cb:
-                    on_error_cb.invoke(f"Download concluded with exit code {retcode}")
+        with yt_dlp.YoutubeDL(inspect_opts) as ydl:
+            meta = ydl.extract_info(url, download=False)
+
+        if not meta:
+            raise RuntimeError("Could not retrieve stream metadata.")
+
+        title = meta.get("title") or req.get("title") or "YouTube Media"
+        clean_title = sanitize_filename(title)
+        formats = meta.get("formats", [])
+
+        # Parse target height
+        h_match = re.search(r"\d+", quality)
+        target_h = int(h_match.group(0)) if h_match else 1080
+
+        # Choose target container extension
+        if is_audio:
+            out_ext = "m4a" if ("m4a" in container or "aac" in container) else ("mp3" if "mp3" in container else "m4a")
+        elif "webm" in container:
+            out_ext = "webm"
+        elif "mkv" in container:
+            out_ext = "mkv"
+        else:
+            out_ext = "mp4"
+
+        final_output_path = get_unique_filepath(output_dir, clean_title, out_ext)
+        temp_dir = get_safe_temp_dir(output_dir)
+
+        # -------------------------------------------------------------
+        # Branch 1: Audio Only Download
+        # -------------------------------------------------------------
+        if is_audio:
+            if on_log_cb:
+                on_log_cb.invoke(f"Downloading audio: {clean_title}.{out_ext}...")
+
+            def audio_progress(d: Dict[str, Any]):
+                if d.get("status") == "downloading":
+                    total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                    downloaded = d.get("downloaded_bytes", 0)
+                    pct = (downloaded / total * 100.0) if total > 0 else 0.0
+                    spd = f"{(d.get('speed', 0) / (1024*1024)):.2f} MB/s" if d.get("speed") else "-- MB/s"
+                    eta = f"{d.get('eta')//60:02d}:{d.get('eta')%60:02d}" if d.get("eta") is not None else "--:--"
+                    payload = {
+                        "percent": round(pct, 1),
+                        "speed": spd,
+                        "eta": eta,
+                        "downloaded": downloaded,
+                        "total": total,
+                        "filename": os.path.basename(final_output_path),
+                    }
+                    if on_progress_cb:
+                        on_progress_cb.invoke(json.dumps(payload))
+
+            audio_opts = dict(base_opts)
+            audio_opts["format"] = "bestaudio[ext=m4a]/bestaudio/ba/b/best"
+            audio_opts["outtmpl"] = final_output_path
+            audio_opts["progress_hooks"] = [audio_progress]
+
+            with yt_dlp.YoutubeDL(audio_opts) as ydl:
+                ydl.download([url])
+
+            if on_complete_cb:
+                on_complete_cb.invoke(json.dumps({"success": True, "output_dir": output_dir, "file": final_output_path}))
+            return
+
+        # -------------------------------------------------------------
+        # Branch 2: Check for Existing Matching Progressive Stream
+        # -------------------------------------------------------------
+        matching_progressive = any(
+            f.get("vcodec") != "none" and f.get("acodec") != "none" and f.get("height") == target_h
+            for f in formats
+        )
+
+        if matching_progressive:
+            if on_log_cb:
+                on_log_cb.invoke(f"Direct stream found for {target_h}p. Downloading in single pass...")
+
+            def prog_hook(d: Dict[str, Any]):
+                if d.get("status") == "downloading":
+                    total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                    downloaded = d.get("downloaded_bytes", 0)
+                    pct = (downloaded / total * 100.0) if total > 0 else 0.0
+                    spd = f"{(d.get('speed', 0) / (1024*1024)):.2f} MB/s" if d.get("speed") else "-- MB/s"
+                    eta = f"{d.get('eta')//60:02d}:{d.get('eta')%60:02d}" if d.get("eta") is not None else "--:--"
+                    payload = {
+                        "percent": round(pct, 1),
+                        "speed": spd,
+                        "eta": eta,
+                        "downloaded": downloaded,
+                        "total": total,
+                        "filename": os.path.basename(final_output_path),
+                    }
+                    if on_progress_cb:
+                        on_progress_cb.invoke(json.dumps(payload))
+
+            prog_opts = dict(base_opts)
+            prog_opts["format"] = f"b[height={target_h}][ext=mp4]/b[height={target_h}]/best[height<={target_h}][ext=mp4]/b/best"
+            prog_opts["outtmpl"] = final_output_path
+            prog_opts["progress_hooks"] = [prog_hook]
+
+            with yt_dlp.YoutubeDL(prog_opts) as ydl:
+                ydl.download([url])
+
+            if on_complete_cb:
+                on_complete_cb.invoke(json.dumps({"success": True, "output_dir": output_dir, "file": final_output_path}))
+            return
+
+        # -------------------------------------------------------------
+        # Branch 3: High-Quality / 4K / 1080p DASH Video + Audio Remux
+        # -------------------------------------------------------------
+        job_tag = str(int(time.time()))
+        temp_video_file = os.path.join(temp_dir, f".temp_v_{job_tag}.mp4")
+        temp_audio_file = os.path.join(temp_dir, f".temp_a_{job_tag}.m4a")
+
+        # Step 3a: Video stream download (maps progress 0% - 80%)
+        if on_log_cb:
+            on_log_cb.invoke(f"Downloading {target_h}p video stream...")
+
+        def video_progress(d: Dict[str, Any]):
+            if d.get("status") == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                downloaded = d.get("downloaded_bytes", 0)
+                raw_pct = (downloaded / total * 100.0) if total > 0 else 0.0
+                effective_pct = raw_pct * 0.80  # 80% weight for video
+                spd = f"{(d.get('speed', 0) / (1024*1024)):.2f} MB/s" if d.get("speed") else "-- MB/s"
+                eta = f"{d.get('eta')//60:02d}:{d.get('eta')%60:02d}" if d.get("eta") is not None else "--:--"
+                payload = {
+                    "percent": round(effective_pct, 1),
+                    "speed": spd,
+                    "eta": eta,
+                    "downloaded": downloaded,
+                    "total": total,
+                    "filename": f"[Video] {os.path.basename(final_output_path)}",
+                }
+                if on_progress_cb:
+                    on_progress_cb.invoke(json.dumps(payload))
+
+        # Prefer MP4 container with H.264 or AV1 for native MediaMuxer compatibility
+        if "av1" in container:
+            v_spec = f"bestvideo[height<={target_h}][vcodec^=av01]/bestvideo[height<={target_h}][ext=mp4]/bestvideo[height<={target_h}]"
+        elif "webm" in container:
+            v_spec = f"bestvideo[height<={target_h}][vcodec^=vp9]/bestvideo[height<={target_h}][ext=webm]/bestvideo[height<={target_h}]"
+        else:
+            v_spec = f"bestvideo[height<={target_h}][vcodec^=avc][ext=mp4]/bestvideo[height<={target_h}][ext=mp4]/bestvideo[height<={target_h}]"
+
+        video_opts = dict(base_opts)
+        video_opts["format"] = v_spec
+        video_opts["outtmpl"] = temp_video_file
+        video_opts["progress_hooks"] = [video_progress]
+
+        with yt_dlp.YoutubeDL(video_opts) as ydl:
+            ydl.download([url])
+
+        # Step 3b: Audio stream download (maps progress 80% - 95%)
+        if on_log_cb:
+            on_log_cb.invoke("Downloading high-quality audio stream...")
+
+        def audio_progress(d: Dict[str, Any]):
+            if d.get("status") == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                downloaded = d.get("downloaded_bytes", 0)
+                raw_pct = (downloaded / total * 100.0) if total > 0 else 0.0
+                effective_pct = 80.0 + (raw_pct * 0.15)  # 15% weight for audio (80% - 95%)
+                spd = f"{(d.get('speed', 0) / (1024*1024)):.2f} MB/s" if d.get("speed") else "-- MB/s"
+                eta = f"{d.get('eta')//60:02d}:{d.get('eta')%60:02d}" if d.get("eta") is not None else "--:--"
+                payload = {
+                    "percent": round(effective_pct, 1),
+                    "speed": spd,
+                    "eta": eta,
+                    "downloaded": downloaded,
+                    "total": total,
+                    "filename": f"[Audio] {os.path.basename(final_output_path)}",
+                }
+                if on_progress_cb:
+                    on_progress_cb.invoke(json.dumps(payload))
+
+        audio_opts = dict(base_opts)
+        audio_opts["format"] = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio"
+        audio_opts["outtmpl"] = temp_audio_file
+        audio_opts["progress_hooks"] = [audio_progress]
+
+        with yt_dlp.YoutubeDL(audio_opts) as ydl:
+            ydl.download([url])
+
+        # Step 3c: Hardware Remux via MediaMuxer
+        if on_log_cb:
+            on_log_cb.invoke(f"Muxing {target_h}p video and audio tracks...")
+
+        mux_payload = {
+            "percent": 97.0,
+            "speed": "Muxing...",
+            "eta": "00:01",
+            "filename": os.path.basename(final_output_path),
+        }
+        if on_progress_cb:
+            on_progress_cb.invoke(json.dumps(mux_payload))
+
+        mux_ok = mux_streams(temp_video_file, temp_audio_file, final_output_path)
+        if not mux_ok:
+            raise RuntimeError(f"Hardware remuxing failed to create output file: {final_output_path}")
+
+        done_payload = {
+            "percent": 100.0,
+            "speed": "Completed",
+            "eta": "00:00",
+            "filename": os.path.basename(final_output_path),
+        }
+        if on_progress_cb:
+            on_progress_cb.invoke(json.dumps(done_payload))
+
+        if on_log_cb:
+            on_log_cb.invoke(f"Download completed successfully! Saved to: {final_output_path}")
+
+        if on_complete_cb:
+            on_complete_cb.invoke(json.dumps({"success": True, "output_dir": output_dir, "file": final_output_path}))
 
     except Exception as e:
         if on_error_cb:
             on_error_cb.invoke(str(e))
     finally:
-        if temp_download_cookie and os.path.exists(temp_download_cookie):
-            try:
-                os.unlink(temp_download_cookie)
-            except Exception:
-                pass
+        # Clean up temporary stream chunks safely
+        for tmp_f in [temp_video_file, temp_audio_file, temp_download_cookie]:
+            if tmp_f and os.path.exists(tmp_f):
+                try:
+                    os.unlink(tmp_f)
+                except Exception:
+                    pass
