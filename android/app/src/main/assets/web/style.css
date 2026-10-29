@@ -447,32 +447,116 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.55rem;
   box-shadow: 0 4px 12px var(--brand-glow);
   position: relative;
   overflow: hidden;
-  transition: transform 0.12s var(--ease), box-shadow 0.15s var(--ease), filter 0.12s var(--ease);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+              filter 0.12s ease,
+              background 0.3s ease;
 }
 
 .btn-fetch:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px var(--brand-glow);
+  box-shadow: 0 6px 18px var(--brand-glow);
 }
 
-.btn-fetch:active {
-  transform: scale(0.95) translateY(1px);
-  box-shadow: 0 2px 6px var(--brand-glow);
-  filter: brightness(1.2);
+/* Tactile click & press animation */
+.btn-fetch:active,
+.btn-fetch.btn-clicked {
+  transform: scale(0.92) !important;
+  box-shadow: 0 0 0 4px rgba(255, 0, 51, 0.35), 0 2px 4px var(--brand-glow) !important;
+  filter: brightness(1.25);
+  transition: transform 0.08s ease, box-shadow 0.08s ease !important;
 }
 
+.btn-fetch-icon {
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* Material / YouTube-style circular buffer animation */
+.fetch-buffer-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.buffer-icon-svg {
+  width: 20px;
+  height: 20px;
+  animation: bufferRotate 1.2s linear infinite;
+}
+
+.buffer-path-bg {
+  stroke: rgba(255, 255, 255, 0.28);
+}
+
+.buffer-path {
+  stroke: #ffffff;
+  stroke-linecap: round;
+  stroke-dasharray: 80, 150;
+  stroke-dashoffset: 0;
+  animation: bufferDash 1.5s ease-in-out infinite;
+}
+
+@keyframes bufferRotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bufferDash {
+  0% {
+    stroke-dasharray: 1, 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -35;
+  }
+  100% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -125;
+  }
+}
+
+/* Ongoing Loading State with Shimmer & Glow */
+.btn-fetch.is-fetching,
 .btn-fetch.loading {
-  background: linear-gradient(135deg, #d60029 0%, #b80024 100%);
+  background: linear-gradient(110deg, #d60029 0%, #ff2a55 35%, #ff5277 50%, #ff2a55 65%, #d60029 100%);
+  background-size: 200% 100%;
+  animation: fetchShimmer 1.8s linear infinite, fetchPulseGlow 1.4s ease-in-out infinite alternate;
   cursor: wait;
-  box-shadow: 0 2px 8px var(--brand-glow);
+}
+
+@keyframes fetchShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes fetchPulseGlow {
+  0% {
+    box-shadow: 0 0 10px rgba(255, 0, 51, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 22px rgba(255, 0, 51, 0.85), 0 0 35px rgba(255, 59, 96, 0.35);
+  }
 }
 
 .btn-fetch:disabled {
-  opacity: 0.75;
+  opacity: 0.85;
   cursor: wait;
 }
 

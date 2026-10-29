@@ -105,6 +105,22 @@ const CONTAINER_METADATA = {
 
 // Initialize on page load
 document.addEventListener("DOMContentLoaded", () => {
+  // Enable instant active pseudo-classes & touch feedback on mobile WebView
+  document.addEventListener("touchstart", function () {}, { passive: true });
+
+  const inspectBtn = document.getElementById("btn-inspect");
+  if (inspectBtn) {
+    inspectBtn.addEventListener("pointerdown", () => {
+      inspectBtn.classList.add("btn-clicked");
+    });
+    inspectBtn.addEventListener("pointerup", () => {
+      setTimeout(() => inspectBtn.classList.remove("btn-clicked"), 160);
+    });
+    inspectBtn.addEventListener("pointercancel", () => {
+      inspectBtn.classList.remove("btn-clicked");
+    });
+  }
+
   initTheme();
   initSystemChecks();
   initContainerInspector();
@@ -674,6 +690,27 @@ async function pasteClipboard() {
   }
 }
 
+// Global callback bridge for asynchronous Android inspections
+window._fetchCallbacks = window._fetchCallbacks || {};
+window.onFetchInfoComplete = function (callbackId, result) {
+  if (window._fetchCallbacks && window._fetchCallbacks[callbackId]) {
+    const cb = window._fetchCallbacks[callbackId];
+    delete window._fetchCallbacks[callbackId];
+    if (typeof result === "string") {
+      try {
+        result = JSON.parse(result);
+      } catch (e) {
+        console.warn("Could not parse result string", e);
+      }
+    }
+    if (result && result.error) {
+      cb.reject(new Error(result.error));
+    } else {
+      cb.resolve(result);
+    }
+  }
+};
+
 // ==============================================================================
 // 4. URL Inspection
 // ==============================================================================
@@ -692,19 +729,29 @@ async function inspectUrl() {
   }
 
   // Tactile haptic feedback on tap
-  if (navigator.vibrate) navigator.vibrate(35);
+  if (navigator.vibrate) navigator.vibrate([35, 25, 35]);
 
   const btn = document.getElementById("btn-inspect");
+  const icon = document.getElementById("inspect-icon");
   const spinner = document.getElementById("inspect-spinner");
   const label = document.getElementById("inspect-label");
 
+  // Immediate click depression animation & buffer activation
   if (btn) {
+    btn.classList.add("btn-clicked");
+    setTimeout(() => {
+      if (btn) btn.classList.remove("btn-clicked");
+    }, 180);
     btn.disabled = true;
-    btn.classList.add("loading");
+    btn.classList.add("is-fetching", "loading");
   }
+  if (icon) icon.classList.add("hidden");
   if (spinner) spinner.classList.remove("hidden");
-  if (label) label.textContent = "Fetching Details...";
+  if (label) label.textContent = "Fetching...";
   showToast("Fetching video details...");
+
+  // Yield to the rendering engine so CSS animation & buffer icon start immediately
+  await new Promise((r) => setTimeout(r, 50));
 
   const cookieChoice = document.getElementById("browser-cookies")?.value || null;
   const customCookies = document.getElementById("cookies-input")?.value?.trim() || "";
@@ -714,9 +761,15 @@ async function inspectUrl() {
 
   try {
     let data;
-    if (window.AndroidBridge && typeof window.AndroidBridge.fetchInfo === 'function') {
+    if (window.AndroidBridge && typeof window.AndroidBridge.fetchInfoAsync === 'function') {
+      data = await new Promise((resolve, reject) => {
+        const callbackId = "fetch_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+        window._fetchCallbacks[callbackId] = { resolve, reject };
+        window.AndroidBridge.fetchInfoAsync(url, customCookies, callbackId);
+      });
+    } else if (window.AndroidBridge && typeof window.AndroidBridge.fetchInfo === 'function') {
       const raw = window.AndroidBridge.fetchInfo(url, customCookies);
-      data = JSON.parse(raw);
+      data = typeof raw === "string" ? JSON.parse(raw) : raw;
       if (data.error) throw new Error(data.error);
     } else {
       const res = await fetch("/api/inspect", {
@@ -738,9 +791,10 @@ async function inspectUrl() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.classList.remove("loading");
+      btn.classList.remove("is-fetching", "loading");
     }
     if (spinner) spinner.classList.add("hidden");
+    if (icon) icon.classList.remove("hidden");
     if (label) label.textContent = "Fetch Details";
   }
 }

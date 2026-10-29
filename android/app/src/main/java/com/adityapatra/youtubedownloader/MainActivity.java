@@ -273,6 +273,31 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public void fetchInfoAsync(String url, String cookies, String callbackId) {
+            new Thread(() -> {
+                String result;
+                try {
+                    Python py = Python.getInstance();
+                    PyObject bridge = py.getModule("mobile_bridge");
+                    result = bridge.callAttr("fetch_video_info", url, cookies != null ? cookies : "").toString();
+                } catch (Exception e) {
+                    result = "{\"error\":\"" + JSONObjectEscapeRaw(e.getMessage()) + "\"}";
+                }
+                final String finalResult = result;
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("if (window.onFetchInfoComplete) { window.onFetchInfoComplete(" + JSONObjectEscape(callbackId) + ", " + finalResult + "); }", null);
+                    }
+                });
+            }).start();
+        }
+
+        @JavascriptInterface
+        public void fetchInfoAsync(String url, String callbackId) {
+            fetchInfoAsync(url, "", callbackId);
+        }
+
+        @JavascriptInterface
         public String fetchInfo(String url, String cookies) {
             try {
                 Python py = Python.getInstance();
