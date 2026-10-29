@@ -1,0 +1,171 @@
+name: Daily Automated Tests & Issue Reporter
+
+on:
+  schedule:
+    # Run every day at 00:00 UTC (Midnight UTC)
+    - cron: '0 0 * * *'
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  test-codecs-and-backend:
+    name: Codecs, Formats & Backend API Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest httpx
+
+      - name: Run Pytest Test Suite
+        id: run_pytest
+        run: |
+          python -m pytest tests/ -v --junitxml=test-results.xml
+
+      - name: Raise GitHub Issue on Test Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automated-issue'
+            });
+
+            const title = '🚨 Daily Automated Test Failure: Codec / Backend Regression Detected';
+            const existing = issues.find(i => i.title.includes('Daily Automated Test Failure'));
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `## 🚨 Daily Test Failure Detected
+
+A test failure or regression occurred during automated testing of the downloader backend and codec engine.
+
+- **Workflow Run:** [View Detailed Logs](${runUrl})
+- **Branch:** \`${context.ref}\`
+- **Commit SHA:** \`${context.sha}\`
+- **Triggered By:** \`${context.eventName}\`
+- **Timestamp:** \`${new Date().toISOString()}\`
+
+### Affected Areas
+- Container and codec argument builders (10 formats: \`mp4-h264\`, \`mp4-av1\`, \`mkv\`, \`webm\`, \`mov\`, \`mp3\`, \`m4a\`, \`opus\`, \`flac\`, \`wav\`)
+- Mobile Chaquopy Python Bridge (resolution classification, sanitize filename, dedup)
+- In-app Updater API & semantic versioning logic
+- FastAPI endpoints (\`/api/system\`, \`/api/status\`, \`/api/files\`, \`/api/inspect\`)
+
+### Action Required
+Please inspect the attached test logs in the workflow run link and push a fix.
+
+---
+*This issue was automatically opened by the Daily Automated Tests GitHub Action.*`;
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `⚠️ **Daily Test Failure Persists** on commit \`${context.sha}\`.\n[View Latest Workflow Run](${runUrl})`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['bug', 'automated-issue', 'regression']
+              });
+            }
+
+  test-android-build:
+    name: Android Gradle Build & Chaquopy Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Python 3.11 (Chaquopy target)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Check Gradle compilation
+        working-directory: android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Raise GitHub Issue on Android Build Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automated-issue'
+            });
+
+            const title = '🚨 Daily Automated Test Failure: Android Build / Chaquopy Regression';
+            const existing = issues.find(i => i.title.includes('Android Build'));
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `## 🚨 Android Build Failure Detected
+
+The Android APK compilation or Chaquopy bytecode compilation failed during the daily automated test run.
+
+- **Workflow Run:** [View Detailed Logs](${runUrl})
+- **Branch:** \`${context.ref}\`
+- **Commit SHA:** \`${context.sha}\`
+- **Triggered By:** \`${context.eventName}\`
+- **Timestamp:** \`${new Date().toISOString()}\`
+
+Please inspect the Gradle stacktrace in the workflow run link.
+
+---
+*This issue was automatically opened by the Daily Automated Tests GitHub Action.*`;
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `⚠️ **Android Compilation Failure Persists** on commit \`${context.sha}\`.\n[View Latest Workflow Run](${runUrl})`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['bug', 'automated-issue', 'regression']
+              });
+            }
