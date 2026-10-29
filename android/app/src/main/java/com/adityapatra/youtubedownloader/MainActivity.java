@@ -165,6 +165,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        AppUpdateManager.resumePendingInstall(this);
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
@@ -214,7 +220,56 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public String getSystemStatus() {
-            return "{\"ytdlp_version\":\"Embedded Engine\",\"ffmpeg_available\":true,\"aria2c_available\":false,\"detected_browsers\":[]}";
+            String appVer = AppUpdateManager.getCurrentAppVersion(MainActivity.this);
+            return "{\"ytdlp_version\":\"Embedded Engine\",\"app_version\":\"" + appVer + "\",\"ffmpeg_available\":true,\"aria2c_available\":false,\"detected_browsers\":[]}";
+        }
+
+        @JavascriptInterface
+        public String getAppVersion() {
+            return AppUpdateManager.getCurrentAppVersion(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void checkForUpdates() {
+            AppUpdateManager.checkUpdate(MainActivity.this, resultJson -> {
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("if (window.onUpdateCheckResult) { window.onUpdateCheckResult(" + JSONObjectEscape(resultJson) + "); }", null);
+                    }
+                });
+            });
+        }
+
+        @JavascriptInterface
+        public void downloadAndInstallUpdate(String downloadUrl) {
+            AppUpdateManager.downloadAndInstall(MainActivity.this, downloadUrl, new AppUpdateManager.DownloadCallback() {
+                @Override
+                public void onProgress(int percent, long downloaded, long total) {
+                    runOnUiThread(() -> {
+                        if (webView != null) {
+                            webView.evaluateJavascript("if (window.onUpdateDownloadProgress) { window.onUpdateDownloadProgress(" + percent + ", " + downloaded + ", " + total + "); }", null);
+                        }
+                    });
+                }
+
+                @Override
+                public void onComplete(File apkFile) {
+                    runOnUiThread(() -> {
+                        if (webView != null) {
+                            webView.evaluateJavascript("if (window.onUpdateDownloadComplete) { window.onUpdateDownloadComplete(); }", null);
+                        }
+                    });
+                }
+
+                @Override
+                public void onError(String error) {
+                    runOnUiThread(() -> {
+                        if (webView != null) {
+                            webView.evaluateJavascript("if (window.onUpdateDownloadError) { window.onUpdateDownloadError(" + JSONObjectEscape(error) + "); }", null);
+                        }
+                    });
+                }
+            });
         }
 
         @JavascriptInterface

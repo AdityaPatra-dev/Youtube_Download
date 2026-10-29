@@ -1352,6 +1352,50 @@ async def update_ytdlp_engine():
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
 
 
+@app.get("/api/app-update/check")
+async def check_app_update():
+    """Checks GitHub for latest release of YouTube Downloader."""
+    current_ver = "v1.3.1"
+    try:
+        import urllib.request
+        url = "https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+
+        def probe():
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                final_url = resp.geturl()
+                tag = final_url.split("/")[-1].strip()
+                if not tag.startswith("v"):
+                    tag = "v" + tag
+                return tag
+
+        latest_tag = await asyncio.to_thread(probe)
+
+        def comp(v1, v2):
+            import re
+            p1 = [int(x) for x in re.sub(r'^[vV]', '', v1).split('.') if x.isdigit()]
+            p2 = [int(x) for x in re.sub(r'^[vV]', '', v2).split('.') if x.isdigit()]
+            return (p1 > p2) - (p1 < p2)
+
+        is_avail = comp(latest_tag, current_ver) > 0
+        return {
+            "status": "success",
+            "current_version": current_ver,
+            "latest_version": latest_tag,
+            "is_update_available": is_avail,
+            "download_url": f"https://github.com/AdityaPatra-dev/Youtube_Download/releases/download/{latest_tag}/YouTube-Downloader.apk",
+            "release_url": f"https://github.com/AdityaPatra-dev/Youtube_Download/releases/tag/{latest_tag}"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "current_version": current_ver,
+            "latest_version": current_ver,
+            "is_update_available": False,
+            "message": str(e)
+        }
+
+
 # ==============================================================================
 # Standalone Launcher
 # ==============================================================================
