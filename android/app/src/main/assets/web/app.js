@@ -678,16 +678,33 @@ async function pasteClipboard() {
 // 4. URL Inspection
 // ==============================================================================
 async function inspectUrl() {
-  const url = document.getElementById("url-input").value.trim();
-  if (!url) return;
+  const urlInput = document.getElementById("url-input");
+  const url = urlInput ? urlInput.value.trim() : "";
+  if (!url) {
+    if (navigator.vibrate) navigator.vibrate(50);
+    showToast("Please enter or paste a YouTube URL first");
+    if (urlInput) {
+      urlInput.focus();
+      urlInput.classList.add("input-shake");
+      setTimeout(() => urlInput.classList.remove("input-shake"), 500);
+    }
+    return;
+  }
+
+  // Tactile haptic feedback on tap
+  if (navigator.vibrate) navigator.vibrate(35);
 
   const btn = document.getElementById("btn-inspect");
   const spinner = document.getElementById("inspect-spinner");
   const label = document.getElementById("inspect-label");
 
-  btn.disabled = true;
-  spinner.classList.remove("hidden");
-  label.textContent = "Inspecting...";
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add("loading");
+  }
+  if (spinner) spinner.classList.remove("hidden");
+  if (label) label.textContent = "Fetching Details...";
+  showToast("Fetching video details...");
 
   const cookieChoice = document.getElementById("browser-cookies")?.value || null;
   const customCookies = document.getElementById("cookies-input")?.value?.trim() || "";
@@ -719,9 +736,12 @@ async function inspectUrl() {
   } catch (err) {
     showToast(`Error: ${err.message}`);
   } finally {
-    btn.disabled = false;
-    spinner.classList.add("hidden");
-    label.textContent = "Fetch Details";
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove("loading");
+    }
+    if (spinner) spinner.classList.add("hidden");
+    if (label) label.textContent = "Fetch Details";
   }
 }
 
@@ -934,9 +954,25 @@ function displayDashboard(jobData) {
   panel.classList.remove("hidden");
   panel.scrollIntoView({ behavior: "smooth" });
 
-  document.getElementById("active-job-title").textContent = jobData.title || "YouTube Download";
+  const title = jobData.title || (jobData.payload && jobData.payload.title) || (currentMeta ? currentMeta.title : "YouTube Download");
+  document.getElementById("active-job-title").textContent = title;
   document.getElementById("active-job-status").textContent = jobData.status || "DOWNLOADING";
   document.getElementById("btn-start").disabled = true;
+
+  // Initialize progress indicators immediately so UI never looks frozen
+  const fillEl = document.getElementById("job-progress-fill");
+  const pctLabel = document.getElementById("job-pct-label");
+  const speedEl = document.getElementById("job-speed") || document.getElementById("metric-speed");
+  const etaEl = document.getElementById("job-eta") || document.getElementById("metric-eta");
+  const sizeEl = document.getElementById("job-size") || document.getElementById("metric-size");
+  const batchesEl = document.getElementById("job-batches") || document.getElementById("job-batches-label");
+
+  if (fillEl) fillEl.style.width = "0%";
+  if (pctLabel) pctLabel.textContent = "Connecting to stream...";
+  if (speedEl) speedEl.textContent = "Connecting...";
+  if (etaEl) etaEl.textContent = "--:--";
+  if (sizeEl) sizeEl.textContent = "Estimating size...";
+  if (batchesEl) batchesEl.textContent = "1 / 1";
 
   // Start timer ticker
   jobStartTime = Date.now();
@@ -945,7 +981,10 @@ function displayDashboard(jobData) {
     const elapsedSec = Math.floor((Date.now() - jobStartTime) / 1000);
     const m = Math.floor(elapsedSec / 60);
     const s = elapsedSec % 60;
-    document.getElementById("job-time-label").textContent = `Elapsed: ${m > 0 ? `${m}m ` : ""}${s}s`;
+    const timeLabel = document.getElementById("job-time-label");
+    if (timeLabel) {
+      timeLabel.textContent = `Elapsed: ${m > 0 ? `${m}m ` : ""}${s}s`;
+    }
   }, 1000);
 
   // Poll job status every 1.5 seconds (desktop/web mode only)
@@ -997,19 +1036,19 @@ function renderProgress(data) {
     pctLabel.textContent = `${effectivePct}% Completed`;
   }
 
-  const batchLabel = document.getElementById("job-batches-label");
+  const batchLabel = document.getElementById("job-batches") || document.getElementById("job-batches-label");
   if (batchLabel) {
-    batchLabel.textContent = `${finished} of ${total} Batches finished`;
+    batchLabel.textContent = `${finished} / ${total}`;
   }
 
-  // Live Granular Metrics
-  const speedEl = document.getElementById("metric-speed");
-  if (speedEl) speedEl.textContent = data.speed || "-- MiB/s";
+  // Live Granular Metrics (supports both job-* and metric-* IDs)
+  const speedEl = document.getElementById("job-speed") || document.getElementById("metric-speed");
+  if (speedEl) speedEl.textContent = data.speed || "-- MB/s";
 
-  const etaEl = document.getElementById("metric-eta");
+  const etaEl = document.getElementById("job-eta") || document.getElementById("metric-eta");
   if (etaEl) etaEl.textContent = data.eta ? `ETA ${data.eta}` : "--:--";
 
-  const sizeEl = document.getElementById("metric-size");
+  const sizeEl = document.getElementById("job-size") || document.getElementById("metric-size");
   if (sizeEl) sizeEl.textContent = data.size || "-- / --";
 
   const queueEl = document.getElementById("metric-queue");
@@ -1065,18 +1104,21 @@ async function deleteQueueItem(index) {
 
 function renderBatches(batches) {
   const list = document.getElementById("batches-list");
+  if (!list) return;
   list.innerHTML = "";
+
+  if (!batches || !Array.isArray(batches)) return;
 
   batches.forEach((b) => {
     const box = document.createElement("div");
-    box.className = `batch-box ${b.status}`;
+    box.className = `batch-box ${b.status || "QUEUED"}`;
 
     box.innerHTML = `
       <div class="batch-row-head">
-        <span>Batch #${b.batch_num}</span>
-        <span class="status-tag ${b.status}">${b.status}</span>
+        <span>Batch #${b.batch_num || 1}</span>
+        <span class="status-tag ${b.status || "QUEUED"}">${b.status || "QUEUED"}</span>
       </div>
-      <div class="batch-subtext">Videos ${b.start_idx} – ${b.end_idx}</div>
+      <div class="batch-subtext">Videos ${b.start_idx || 1} – ${b.end_idx || 1}</div>
       <div class="batch-subtext" style="font-family: var(--font-mono);">${b.duration ? `${b.duration.toFixed(1)}s` : (b.status === "RUNNING" ? "Downloading..." : "Queued")}</div>
     `;
     list.appendChild(box);
@@ -1381,30 +1423,55 @@ document.addEventListener("keydown", (e) => {
 // ==============================================================================
 
 window.onMobileProgress = function (data) {
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch (e) {
+      console.warn("Invalid progress JSON payload", e);
+      return;
+    }
+  }
   if (!data) return;
+
+  const panel = document.getElementById("active-job-panel");
+  if (panel && panel.classList.contains("hidden")) {
+    panel.classList.remove("hidden");
+  }
+
   const progressBar = document.getElementById("job-progress-fill");
   const progressText = document.getElementById("job-pct-label");
-  const speedText = document.getElementById("metric-speed");
-  const etaText = document.getElementById("metric-eta");
-  const sizeText = document.getElementById("metric-size");
+  const speedText = document.getElementById("job-speed") || document.getElementById("metric-speed");
+  const etaText = document.getElementById("job-eta") || document.getElementById("metric-eta");
+  const sizeText = document.getElementById("job-size") || document.getElementById("metric-size");
+  const batchesText = document.getElementById("job-batches") || document.getElementById("job-batches-label");
   const statusLabel = document.getElementById("active-job-status");
   const titleEl = document.getElementById("active-job-title");
 
-  if (progressBar) progressBar.style.width = `${data.percent}%`;
+  const pct = Math.min(100, Math.max(0, data.percent || 0));
+  if (progressBar) progressBar.style.width = `${pct}%`;
   if (progressText) {
     if (data.speed === "Muxing...") {
       progressText.textContent = "Remuxing Video & Audio Tracks...";
     } else {
-      progressText.textContent = `${data.percent}% Completed`;
+      progressText.textContent = `${pct}% Completed`;
     }
   }
-  if (speedText) speedText.textContent = data.speed || "-- MiB/s";
+  if (speedText) speedText.textContent = data.speed || "-- MB/s";
   if (etaText) etaText.textContent = data.eta || "--:--";
-  if (sizeText && data.total > 0) {
-    sizeText.textContent = `${formatBytes(data.downloaded)} / ${formatBytes(data.total)}`;
+  if (sizeText) {
+    if (data.total > 0 && data.downloaded >= 0) {
+      sizeText.textContent = `${formatBytes(data.downloaded)} / ${formatBytes(data.total)}`;
+    } else if (data.downloaded > 0) {
+      sizeText.textContent = `${formatBytes(data.downloaded)}`;
+    } else {
+      sizeText.textContent = "Connecting...";
+    }
+  }
+  if (batchesText) {
+    batchesText.textContent = data.batches || "1 / 1";
   }
   if (statusLabel) {
-    statusLabel.textContent = data.speed === "Muxing..." ? "REMUXING" : "RUNNING";
+    statusLabel.textContent = data.speed === "Muxing..." ? "REMUXING" : (pct >= 100 ? "COMPLETED" : "DOWNLOADING");
   }
   if (titleEl && data.filename) {
     titleEl.textContent = data.filename;

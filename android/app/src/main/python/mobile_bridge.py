@@ -508,23 +508,8 @@ def start_download(
         if cookie_path:
             base_opts["cookiefile"] = cookie_path
 
-        # Inspect stream metadata to get true title and format availability
-        inspect_opts = dict(base_opts)
-        inspect_opts["skip_download"] = True
-        inspect_opts["quiet"] = True
-
-        if on_log_cb:
-            on_log_cb.invoke("Analyzing video and audio formats...")
-
-        with yt_dlp.YoutubeDL(inspect_opts) as ydl:
-            meta = ydl.extract_info(url, download=False)
-
-        if not meta:
-            raise RuntimeError("Could not retrieve stream metadata.")
-
-        title = meta.get("title") or req.get("title") or "YouTube Media"
+        title = req.get("title") or "YouTube Media"
         clean_title = sanitize_filename(title)
-        formats = meta.get("formats", [])
 
         # Parse target height
         h_match = re.search(r"\d+", quality)
@@ -542,6 +527,34 @@ def start_download(
 
         final_output_path = get_unique_filepath(output_dir, clean_title, out_ext)
         temp_dir = get_safe_temp_dir(output_dir)
+
+        # Send immediate initial progress event so UI updates instantly
+        if on_progress_cb:
+            on_progress_cb.invoke(json.dumps({
+                "percent": 1,
+                "speed": "Connecting...",
+                "eta": "--:--",
+                "downloaded": 0,
+                "total": 0,
+                "filename": clean_title,
+                "batches": "1 / 1"
+            }))
+
+        formats = []
+        if not req.get("title"):
+            # Only do full extraction if title was not pre-fetched
+            if on_log_cb:
+                on_log_cb.invoke("Analyzing video and audio formats...")
+            inspect_opts = dict(base_opts)
+            inspect_opts["skip_download"] = True
+            inspect_opts["quiet"] = True
+            with yt_dlp.YoutubeDL(inspect_opts) as ydl:
+                meta = ydl.extract_info(url, download=False)
+            if meta:
+                title = meta.get("title") or title
+                clean_title = sanitize_filename(title)
+                final_output_path = get_unique_filepath(output_dir, clean_title, out_ext)
+                formats = meta.get("formats", [])
 
         # -------------------------------------------------------------
         # Branch 1: Audio Only Download
@@ -648,6 +661,7 @@ def start_download(
                     "downloaded": downloaded,
                     "total": total,
                     "filename": f"[Video] {os.path.basename(final_output_path)}",
+                    "batches": "1 / 1",
                 }
                 if on_progress_cb:
                     on_progress_cb.invoke(json.dumps(payload))
@@ -687,6 +701,7 @@ def start_download(
                     "downloaded": downloaded,
                     "total": total,
                     "filename": f"[Audio] {os.path.basename(final_output_path)}",
+                    "batches": "1 / 1",
                 }
                 if on_progress_cb:
                     on_progress_cb.invoke(json.dumps(payload))
@@ -708,6 +723,7 @@ def start_download(
             "speed": "Muxing...",
             "eta": "00:01",
             "filename": os.path.basename(final_output_path),
+            "batches": "1 / 1",
         }
         if on_progress_cb:
             on_progress_cb.invoke(json.dumps(mux_payload))
@@ -721,6 +737,7 @@ def start_download(
             "speed": "Completed",
             "eta": "00:00",
             "filename": os.path.basename(final_output_path),
+            "batches": "1 / 1",
         }
         if on_progress_cb:
             on_progress_cb.invoke(json.dumps(done_payload))
