@@ -1385,7 +1385,7 @@ async def update_ytdlp_engine():
 @app.get("/api/app-update/check")
 async def check_app_update():
     """Checks GitHub for latest release of YouTube Downloader."""
-    current_ver = "v1.3.1"
+    current_ver = "v1.4.0"
     try:
         import urllib.request
         url = "https://github.com/AdityaPatra-dev/Youtube_Download/releases/latest"

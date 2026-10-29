@@ -1579,7 +1579,7 @@ let isManualUpdateCheck = false;
 
 function getStoredAppVersion() {
   const lbl = document.getElementById("app-version-label");
-  return lbl ? lbl.textContent.trim() : "v1.3.1";
+  return lbl ? lbl.textContent.trim() : "v1.4.0";
 }
 
 function openUpdateModal() {
