@@ -51,3 +51,4 @@ def test_tag_extraction_from_redirect_location():
     tag = location.split("/")[-1].strip()
     assert tag == "v1.3.2"
     assert compare_versions("v1.3.1", tag) == -1
+

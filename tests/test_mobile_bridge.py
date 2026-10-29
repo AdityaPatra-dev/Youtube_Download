@@ -94,3 +94,4 @@ def test_parse_available_formats():
     # Audio info must be populated
     assert audio_info is not None
     assert "size_formatted" in audio_info
+

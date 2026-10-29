@@ -118,3 +118,4 @@ def test_optional_features_flags():
     assert "--embed-thumbnail" in cmd
     assert "--embed-chapters" in cmd
     assert "--sponsorblock-remove" in cmd
+
