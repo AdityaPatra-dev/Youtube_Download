@@ -1,93 +1,98 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>YouTube Downloader</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <link rel="icon" type="image/png" href="icon.png">
 </head>
 <body>
-  <div class="site-wrapper">
-    <!-- Clean Header -->
-    <header class="top-nav">
-      <div class="nav-left">
-        <a href="/" class="brand-link">
-          <span class="brand-badge">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+  <div class="app-shell">
+    
+    <!-- Modern App Bar -->
+    <header class="app-bar">
+      <div class="app-bar-content">
+        <div class="brand">
+          <div class="brand-logo">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
               <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
             </svg>
-          </span>
-          <span class="brand-name">YouTube Downloader</span>
-        </a>
-        <span class="app-tag">Local Engine</span>
-      </div>
-
-      <div class="nav-right">
-        <!-- Diagnostic Status Badges -->
-        <div class="status-group">
-          <div class="status-chip" id="ytdlp-chip" title="yt-dlp Engine Status">
-            <span class="chip-dot dot-gray" id="ytdlp-dot"></span>
-            <span id="ytdlp-label">yt-dlp</span>
           </div>
-          <div class="status-chip" id="ffmpeg-chip" title="FFmpeg Media Merger Status">
-            <span class="chip-dot dot-gray" id="ffmpeg-dot"></span>
-            <span id="ffmpeg-label">FFmpeg</span>
-          </div>
-          <div class="status-chip hidden" id="aria2c-chip" title="aria2c Multi-connection Turbo Downloader">
-            <span class="chip-dot dot-green"></span>
-            <span>aria2c Turbo</span>
+          <div class="brand-text">
+            <span class="brand-title">YT Downloader</span>
+            <span class="brand-subtitle">Fast • HD • Direct</span>
           </div>
         </div>
 
-        <!-- Engine Update Tool -->
-        <button type="button" class="tool-btn" id="btn-update-ytdlp" onclick="updateYtDlpEngine()" title="Update yt-dlp to latest version">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"></polyline>
-            <polyline points="1 20 1 14 7 14"></polyline>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-          </svg>
-          <span class="tool-btn-text">Update Engine</span>
-        </button>
+        <div class="app-bar-actions">
+          <!-- App Version / Update Checker Button -->
+          <button type="button" class="btn-version" id="btn-check-app-update" onclick="checkAppUpdates(true)" title="Check for Application Updates">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span id="app-version-label">v1.3.1</span>
+            <span class="update-indicator-dot hidden" id="update-badge-dot" title="Update available!"></span>
+          </button>
 
-        <!-- Light/Dark Mode Toggle -->
-        <button type="button" class="theme-toggle-btn" id="theme-toggle" title="Toggle Light/Dark Theme" aria-label="Toggle theme">
-          <svg class="theme-icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="5"></circle>
-            <line x1="12" y1="1" x2="12" y2="3"></line>
-            <line x1="12" y1="21" x2="12" y2="23"></line>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-            <line x1="1" y1="12" x2="3" y2="12"></line>
-            <line x1="21" y1="12" x2="23" y2="12"></line>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-          </svg>
-          <svg class="theme-icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-          </svg>
-        </button>
+          <!-- Theme Toggle -->
+          <button type="button" class="btn-icon" id="theme-toggle" title="Toggle Light/Dark Theme" aria-label="Toggle theme">
+            <svg class="theme-icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <svg class="theme-icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+
+          <!-- Settings Button -->
+          <button type="button" class="btn-icon" id="btn-open-settings" onclick="openSettingsModal()" title="Settings & Authentication">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </div>
       </div>
     </header>
 
-    <!-- Main Content Area -->
+    <!-- Real-time In-App Update Banner -->
+    <div class="update-banner hidden" id="update-banner">
+      <div class="update-banner-container">
+        <div class="update-banner-left">
+          <span class="update-banner-badge">NEW UPDATE</span>
+          <span class="update-banner-text">A new version of YouTube Downloader (<strong id="banner-new-ver">v1.3.2</strong>) is ready to install!</span>
+        </div>
+        <div class="update-banner-actions">
+          <button type="button" class="btn-primary-xs" onclick="openUpdateModal()">Update Now</button>
+          <button type="button" class="btn-banner-close" onclick="dismissUpdateBanner()" title="Dismiss">&times;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Page Content -->
     <main class="page-container">
       
-      <!-- 1. URL Input Box -->
-      <section class="panel url-panel">
-        <div class="panel-header-simple">
-          <h2>Download YouTube Video or Playlist</h2>
-          <p class="panel-desc">Paste any YouTube URL to download with parallel batches and automatic resume.</p>
-        </div>
-
+      <!-- 1. URL Search Card -->
+      <section class="card url-card">
         <form id="url-form" onsubmit="event.preventDefault(); inspectUrl();">
-          <div class="input-bar">
-            <div class="input-inner">
-              <span class="url-symbol">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <div class="search-box">
+            <div class="search-input-wrap">
+              <span class="search-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                   <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                 </svg>
@@ -95,394 +100,266 @@
               <input 
                 type="url" 
                 id="url-input" 
-                placeholder="https://www.youtube.com/playlist?list=... or https://youtube.com/watch?v=..." 
+                placeholder="Paste YouTube video or playlist link..." 
                 required 
                 autocomplete="off"
               />
-              <button type="button" class="action-subtle-btn" onclick="pasteClipboard()" title="Paste from clipboard">
-                Paste
+              <button type="button" class="btn-paste" onclick="pasteClipboard()" title="Paste from clipboard">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                </svg>
+                <span>Paste</span>
               </button>
             </div>
-            <button type="submit" class="btn btn-primary" id="btn-inspect">
+            <button type="submit" class="btn-primary btn-fetch" id="btn-inspect">
               <span id="inspect-label">Fetch Details</span>
               <div class="spinner hidden" id="inspect-spinner"></div>
             </button>
           </div>
         </form>
 
-        <div class="demo-samples">
-          <span class="samples-label">Examples:</span>
-          <button type="button" class="sample-chip" onclick="setDemoUrl('playlist')">Sample Playlist</button>
-          <button type="button" class="sample-chip" onclick="setDemoUrl('single')">Single Video</button>
+        <div class="quick-examples">
+          <span class="examples-hint">Quick test:</span>
+          <button type="button" class="chip-sample" onclick="setDemoUrl('single')">Single Video</button>
+          <button type="button" class="chip-sample" onclick="setDemoUrl('playlist')">Sample Playlist</button>
         </div>
       </section>
 
-      <!-- 2. Media Preview Card (Shows once inspected) -->
-      <section class="panel preview-panel hidden" id="preview-panel">
-        <div class="preview-layout">
-          <div class="thumb-container">
+      <!-- 2. Media Preview Card (Shows once fetched) -->
+      <section class="card preview-card hidden" id="preview-panel">
+        <div class="preview-hero">
+          <div class="thumb-wrapper">
             <img id="preview-thumb" src="" alt="Thumbnail" />
-            <span class="badge-type" id="preview-type-badge">Playlist</span>
+            <span class="badge-type" id="preview-type-badge">Video</span>
+            <span class="badge-duration hidden" id="preview-duration">00:00</span>
           </div>
-          <div class="preview-info">
+          <div class="preview-meta">
             <h3 id="preview-title" class="preview-title">Video Title</h3>
-            <div class="preview-metadata-row">
-              <span class="meta-pill" id="preview-channel">Channel Name</span>
-              <span class="meta-pill" id="preview-count">0 Videos</span>
-              <span class="meta-pill hidden" id="preview-duration">Duration</span>
+            <div class="preview-channel-row">
+              <span class="channel-name" id="preview-channel">Channel</span>
+              <span class="bullet">•</span>
+              <span class="video-count" id="preview-count">1 Video</span>
               <span class="meta-pill hidden" id="preview-chapters">Chapters</span>
             </div>
+          </div>
+        </div>
 
-            <!-- Expandable list of videos with checkbox selection -->
-            <div class="videos-accordion">
-              <button type="button" class="accordion-header-btn" onclick="toggleAccordion('videos-preview-list')">
-                <span id="accordion-title-count">View & Select Videos in this Playlist</span>
-                <span class="accordion-arrow">▼</span>
-              </button>
-              <div class="accordion-body hidden" id="videos-preview-list">
-                <div class="playlist-select-controls" id="playlist-select-controls">
-                  <span class="select-summary-label" id="selected-items-summary">All videos selected</span>
-                  <div class="select-btn-group">
-                    <button type="button" class="btn-text-action" onclick="toggleAllPlaylistCheckboxes(true)">Select All</button>
-                    <button type="button" class="btn-text-action" onclick="toggleAllPlaylistCheckboxes(false)">Deselect All</button>
-                  </div>
-                </div>
-                <div class="playlist-items-scrollbox">
-                  <ul class="playlist-items-ul" id="playlist-items-ol">
-                    <!-- Injected via JS -->
-                  </ul>
-                </div>
+        <!-- Expandable playlist items selection drawer -->
+        <div class="playlist-accordion-wrap" id="playlist-drawer-section">
+          <button type="button" class="playlist-toggle-btn" onclick="toggleAccordion('videos-preview-list')">
+            <span id="accordion-title-count">Select Videos in this Playlist</span>
+            <span class="accordion-arrow">▼</span>
+          </button>
+          <div class="playlist-drawer hidden" id="videos-preview-list">
+            <div class="playlist-drawer-toolbar">
+              <span class="playlist-summary-text" id="selected-items-summary">All selected</span>
+              <div class="playlist-btn-group">
+                <button type="button" class="btn-mini" onclick="toggleAllPlaylistCheckboxes(true)">Select All</button>
+                <button type="button" class="btn-mini" onclick="toggleAllPlaylistCheckboxes(false)">Deselect All</button>
               </div>
             </div>
+            <ul class="playlist-ul" id="playlist-items-ol"></ul>
           </div>
         </div>
       </section>
 
-      <!-- 3. Download Configuration Panel -->
-      <section class="panel config-panel" id="config-panel">
-        <div class="panel-section-title">
-          <h3>Download Settings</h3>
+      <!-- 3. Format & Quality Selection Card -->
+      <section class="card format-card" id="config-panel">
+        <div class="card-title-row">
+          <h4 class="card-title">Choose Quality & Format</h4>
+          <span class="badge-hint" id="res-status-hint">Auto-detected stream</span>
         </div>
 
-        <!-- Dynamic Quality & Resolution Selector -->
-        <div class="setting-group">
-          <div class="setting-label-row">
-            <label class="setting-label">Available Resolutions</label>
-            <span class="badge-hint" id="res-status-hint">Auto-detected from media stream</span>
-          </div>
-          <div class="quality-selector" id="quality-selector">
+        <!-- Segmented Tab: Video vs Audio -->
+        <div class="format-tabs-wrap">
+          <button type="button" class="tab-btn active" id="tab-video" onclick="switchMediaTypeTab('video')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            <span>Video & Audio</span>
+          </button>
+          <button type="button" class="tab-btn" id="tab-audio" onclick="switchMediaTypeTab('audio')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            <span>Audio Only (MP3/FLAC)</span>
+          </button>
+        </div>
+
+        <!-- Video Resolution Grid (shown when Video tab is active) -->
+        <div id="video-section-wrap">
+          <label class="section-label">Select Resolution</label>
+          <div class="quality-grid" id="quality-selector">
             <div class="quality-waiting-box" id="quality-waiting-box">
-              <span>Paste a YouTube link above and click <strong>Fetch Details</strong> to scan actual available resolutions and calculate exact file sizes.</span>
+              <span>Enter a YouTube link above and tap <strong>Fetch Details</strong> to discover available resolutions & file sizes.</span>
+            </div>
+          </div>
+
+          <!-- Video Container Pills -->
+          <div class="container-pills-row">
+            <label class="section-label">Video Format:</label>
+            <div class="pills-group" id="video-containers-group">
+              <button type="button" class="pill-chip active" data-container="mp4-h264" onclick="selectContainer('mp4-h264')">MP4 (Default)</button>
+              <button type="button" class="pill-chip" data-container="mp4-av1" onclick="selectContainer('mp4-av1')">MP4 (AV1)</button>
+              <button type="button" class="pill-chip" data-container="mkv" onclick="selectContainer('mkv')">MKV</button>
+              <button type="button" class="pill-chip" data-container="webm" onclick="selectContainer('webm')">WebM</button>
             </div>
           </div>
         </div>
 
-        <!-- Output File Type & Encoding Dropdown -->
-        <div class="setting-group">
-          <div class="setting-label-row">
-            <label class="setting-label" for="container-select">Select Output File Type & Encoding</label>
-            <span class="badge-hint">10 Containers & Encodings Available</span>
-          </div>
-          <div class="select-wrapper">
-            <select id="container-select" onchange="handleContainerChange(this.value)">
-              <optgroup label="🎬 Video Containers & Encodings">
-                <option value="mp4-h264" selected>MP4 (H.264 / AAC) — Universal compatibility (Default)</option>
-                <option value="mp4-av1">MP4 (AV1 / AAC) — Next-Gen, 30% smaller, ultra-efficient</option>
-                <option value="mkv">MKV (Matroska) — Preserves all codecs, multi-track & subtitles</option>
-                <option value="webm">WebM (VP9 / Opus) — Google open web standard</option>
-                <option value="mov">MOV (Apple QuickTime) — macOS & ProRes compatible</option>
-              </optgroup>
-              <optgroup label="🎵 Audio-Only Formats">
-                <option value="mp3">MP3 (MPEG-1 Audio Layer III, up to 320 kbps) — Universal audio</option>
-                <option value="m4a">M4A (AAC Audio) — Apple high fidelity, compact size</option>
-                <option value="opus">OPUS (Ogg Opus) — Superior streaming audio per bit</option>
-                <option value="flac">FLAC (Lossless) — Studio quality bit-perfect compression</option>
-                <option value="wav">WAV (PCM Uncompressed) — Raw uncompressed audio master</option>
-              </optgroup>
-            </select>
-          </div>
-
-          <!-- Interactive Hover / Format Details Card -->
-          <div class="format-inspector-card" id="format-inspector-card">
-            <div class="format-card-header">
-              <div class="format-title-group">
-                <span class="format-badge-pill" id="fmt-badge">Universal</span>
-                <h4 id="fmt-title">MP4 (H.264 / AAC)</h4>
+        <!-- Audio Formats Grid (shown when Audio tab is active) -->
+        <div id="audio-section-wrap" class="hidden">
+          <label class="section-label">Select Audio Quality & Format</label>
+          <div class="audio-grid">
+            <div class="audio-card active" data-container="mp3" onclick="selectContainer('mp3')">
+              <div class="audio-card-top">
+                <span class="audio-tag">UNIVERSAL</span>
+                <span class="audio-name">MP3</span>
               </div>
-              <div class="fmt-size-highlight" id="fmt-size-est">Estimated Size: Awaiting URL inspection</div>
+              <span class="audio-desc">320 kbps High Fidelity • Plays on every device</span>
             </div>
-            <p class="format-card-desc" id="fmt-desc">
-              Most widely compatible video format. Plays on every phone, tablet, Smart TV, browser, and video editing software like Premiere Pro and DaVinci Resolve.
-            </p>
-            <div class="format-card-footer">
-              <span id="fmt-speed">⚡ Fastest hardware decoding</span>
-              <span id="fmt-codecs">Video: H.264 / AVC • Audio: AAC Stereo</span>
+            <div class="audio-card" data-container="m4a" onclick="selectContainer('m4a')">
+              <div class="audio-card-top">
+                <span class="audio-tag">APPLE AAC</span>
+                <span class="audio-name">M4A</span>
+              </div>
+              <span class="audio-desc">Crisp highs & compact size • Native to iOS</span>
+            </div>
+            <div class="audio-card" data-container="flac" onclick="selectContainer('flac')">
+              <div class="audio-card-top">
+                <span class="audio-tag">STUDIO LOSSLESS</span>
+                <span class="audio-name">FLAC</span>
+              </div>
+              <span class="audio-desc">Bit-perfect 100% lossless audio master</span>
+            </div>
+            <div class="audio-card" data-container="wav" onclick="selectContainer('wav')">
+              <div class="audio-card-top">
+                <span class="audio-tag">RAW PCM</span>
+                <span class="audio-name">WAV</span>
+              </div>
+              <span class="audio-desc">Uncompressed studio audio for DAWs</span>
+            </div>
+            <div class="audio-card" data-container="opus" onclick="selectContainer('opus')">
+              <div class="audio-card-top">
+                <span class="audio-tag">STREAM COPY</span>
+                <span class="audio-name">OPUS</span>
+              </div>
+              <span class="audio-desc">Native YouTube bitstream • Zero re-encoding</span>
             </div>
           </div>
         </div>
 
-        <!-- Concurrency & Batch Sliders -->
-        <div class="grid-two-cols">
-          <div class="setting-card">
-            <div class="card-head-row">
-              <label for="workers-slider">Parallel Workers</label>
-              <span class="value-highlight" id="workers-count-label">3 Workers</span>
-            </div>
-            <input type="range" id="workers-slider" min="1" max="8" value="3" oninput="handleSliderChange('workers', this.value)" />
-            <p class="field-hint">Number of batches downloading at the same time</p>
-          </div>
+        <!-- Hidden container-select to preserve JS compatibility -->
+        <select id="container-select" style="display: none;" onchange="handleContainerChange(this.value)">
+          <option value="mp4-h264" selected>MP4 (H.264 / AAC)</option>
+          <option value="mp4-av1">MP4 (AV1 / AAC)</option>
+          <option value="mkv">MKV (Matroska)</option>
+          <option value="webm">WebM (VP9 / Opus)</option>
+          <option value="mov">MOV (Apple QuickTime)</option>
+          <option value="mp3">MP3 (Universal 320kbps)</option>
+          <option value="m4a">M4A (Apple AAC)</option>
+          <option value="opus">OPUS</option>
+          <option value="flac">FLAC (Lossless)</option>
+          <option value="wav">WAV (PCM)</option>
+        </select>
 
-          <div class="setting-card">
-            <div class="card-head-row">
-              <label for="chunk-slider">Batch Size</label>
-              <span class="value-highlight" id="chunk-count-label">20 Videos</span>
-            </div>
-            <input type="range" id="chunk-slider" min="5" max="50" step="5" value="20" oninput="handleSliderChange('chunk', this.value)" />
-            <p class="field-hint">How many videos each parallel worker downloads</p>
-          </div>
-        </div>
-
-        <!-- Advanced Options Toggle -->
-        <div class="advanced-section">
-          <button type="button" class="advanced-toggle-btn" onclick="toggleAccordion('advanced-drawer')">
-            <span>More Options (Destination, Range, Subtitles, Cookies)</span>
-            <span class="accordion-arrow">▼</span>
-          </button>
-
-          <div class="advanced-drawer hidden" id="advanced-drawer">
-            <div class="fields-grid">
-              <div class="field-item full-width">
-                <label for="dest-folder">Download Folder</label>
-                <input type="text" id="dest-folder" value="./downloads" />
-              </div>
-
-              <div class="field-item">
-                <label for="item-start">Start Video Index</label>
-                <input type="number" id="item-start" min="1" value="1" />
-              </div>
-
-              <div class="field-item">
-                <label for="item-end">End Video Index (Optional)</label>
-                <input type="number" id="item-end" placeholder="Leave empty for all" min="1" />
-              </div>
-
-              <div class="field-item full-width" id="browser-cookies-group">
-                <label for="browser-cookies">Use Browser Cookies</label>
-                <select id="browser-cookies">
-                  <option value="">None (Public videos — Default)</option>
-                </select>
-                <small class="field-hint">Auto-detects active browser cookies. If your browser database is locked, close the browser or place a <code>cookies.txt</code> in the project folder.</small>
-              </div>
-
-              <div class="field-item full-width" id="custom-cookies-group">
-                <label for="cookies-input">YouTube Cookies / Authentication (Bypass Bot Check)</label>
-                <textarea id="cookies-input" rows="2" style="width: 100%; border-radius: var(--radius-md); border: 1px solid var(--border); padding: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; background-color: var(--bg-input); color: var(--text-main);" placeholder="Paste your cookies.txt text or place cookies.txt in /sdcard/Download/ to bypass YouTube 'Sign in to confirm you are not a bot'"></textarea>
-                <small class="field-hint">Bypasses YouTube bot check or age restrictions. You can export cookies from Chrome/Firefox via 'Get cookies.txt LOCALLY' extension or copy from your browser.</small>
-              </div>
-
-              <div class="checkboxes-group full-width">
-                <label class="custom-checkbox">
-                  <input type="checkbox" id="chk-resume" checked />
-                  <span>Skip Already Downloaded Files (Uncheck to force re-downloading)</span>
-                </label>
-                <label class="custom-checkbox">
-                  <input type="checkbox" id="chk-chapters" checked />
-                  <span>Embed YouTube Timestamps & Chapter Markers (Playable in VLC, MPV, etc.)</span>
-                </label>
-                <label class="custom-checkbox">
-                  <input type="checkbox" id="chk-subs" />
-                  <span>Download Subtitles</span>
-                </label>
-                <label class="custom-checkbox">
-                  <input type="checkbox" id="chk-thumb" />
-                  <span>Embed Thumbnail Artwork</span>
-                </label>
-                <label class="custom-checkbox">
-                  <input type="checkbox" id="chk-sponsorblock" />
-                  <span>SponsorBlock: Remove Sponsors, Intros & Outros (Clean Videos)</span>
-                </label>
-                <p class="field-hint" style="margin-top: 0.5rem; color: var(--text-muted);">
-                  ⚡ <strong>Turbo Streaming:</strong> Uses 16 parallel fragments and 10MB chunking to bypass YouTube speed throttling. If stopped mid-download, partial videos are automatically repaired so you can watch them immediately!
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Speed Optimization Tips Accordion -->
-        <div class="advanced-section">
-          <button type="button" class="advanced-toggle-btn" onclick="toggleAccordion('speed-guide-drawer')">
-            <span>⚡ How to get maximum download speed (10 Acceleration Tips & aria2c)</span>
-            <span class="accordion-arrow">▼</span>
-          </button>
-          <div class="advanced-drawer hidden" id="speed-guide-drawer">
-            <div class="speed-tips-box">
-              <div class="tip-item">
-                <span class="tip-num">1</span>
-                <div>
-                  <strong>10MB Chunk Streaming (Enabled by Default)</strong>
-                  <p>Requests YouTube video streams in 10MB bursts. This bypasses YouTube's server-side player rate-limiting on large files.</p>
-                </div>
-              </div>
-              <div class="tip-item">
-                <span class="tip-num">2</span>
-                <div>
-                  <strong>16 Concurrent Fragment Connections (Enabled)</strong>
-                  <p>For single videos, downloads 16 video/audio segments in parallel across multiple threads for maximum speed.</p>
-                </div>
-              </div>
-              <div class="tip-item">
-                <span class="tip-num">3</span>
-                <div>
-                  <strong>Install aria2 Multi-Connection Downloader (Ultimate Speed)</strong>
-                  <p>Install <code>aria2</code> (<code>winget install aria2</code> on Windows or <code>sudo apt install aria2</code> on Linux). The downloader will automatically open 16 parallel TCP connections per file to saturate your full ISP bandwidth!</p>
-                </div>
-              </div>
-              <div class="tip-item">
-                <span class="tip-num">4</span>
-                <div>
-                  <strong>Increase Parallel Workers for Playlists</strong>
-                  <p>Use the <em>Parallel Workers</em> slider (set to 4 or 6) so multiple videos download simultaneously.</p>
-                </div>
-              </div>
-              <div class="tip-item">
-                <span class="tip-num">5</span>
-                <div>
-                  <strong>Use Browser Cookies</strong>
-                  <p>Select your browser (Chrome, Firefox, Brave) in <em>More Options</em>. Authenticated YouTube sessions are served from Google's high-priority edge cache nodes.</p>
-                </div>
-              </div>
-              <div class="tip-item">
-                <span class="tip-num">6</span>
-                <div>
-                  <strong>16MB Memory Socket Buffer (Active)</strong>
-                  <p>Caches downloaded chunks in RAM to prevent disk write stalls on 100Mbps - 1Gbps connections.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Big Download Button -->
-        <div class="download-action-bar">
-          <button type="button" class="btn btn-download-main" id="btn-start" onclick="startDownload()">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <!-- Big Download Action Button -->
+        <div class="action-btn-wrap">
+          <button type="button" class="btn-download-hero" id="btn-start" onclick="startDownload()">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            <span>Start Download</span>
+            <div class="btn-download-text">
+              <span class="btn-main-label" id="btn-start-label">Start Download</span>
+              <span class="btn-sub-label" id="btn-start-sublabel">1080p Full HD • MP4</span>
+            </div>
+          </button>
+          
+          <button type="button" class="btn-advanced-link" onclick="openSettingsModal()">
+            ⚙️ Advanced Options (Cookies / Bot-Check, Subtitles, Sponsors)
           </button>
         </div>
       </section>
 
-      <!-- 4. Active Download Dashboard (Visible when downloading) -->
-      <section class="panel dashboard-panel hidden" id="dashboard-panel">
-        <div class="dashboard-header-row">
-          <div>
-            <div class="status-indicator-badge">
-              <span class="status-indicator-dot" id="status-dot-active"></span>
-              <span id="active-job-status">DOWNLOADING</span>
-            </div>
-            <h3 id="active-job-title" class="active-title">Downloading Media</h3>
+      <!-- 4. Active Download Card (Shows when download is running) -->
+      <section class="card active-download-card hidden" id="dashboard-panel">
+        <div class="active-dl-header">
+          <div class="active-dl-status">
+            <span class="pulse-indicator" id="status-dot-active"></span>
+            <span class="status-title" id="active-job-status">DOWNLOADING</span>
           </div>
-          <div>
-            <button type="button" class="btn btn-stop" id="btn-cancel" onclick="cancelDownload()">
-              Stop Download
-            </button>
+          <button type="button" class="btn-mini btn-cancel" id="btn-cancel" onclick="cancelDownload()">Cancel</button>
+        </div>
+
+        <h4 class="active-job-title" id="active-job-title">Preparing download...</h4>
+        <div class="active-job-url hidden" id="active-job-url"></div>
+
+        <!-- Big Progress Bar -->
+        <div class="active-progress-wrap">
+          <div class="active-progress-bar">
+            <div class="active-progress-fill" id="job-progress-fill" style="width: 0%;"></div>
+          </div>
+          <div class="active-progress-pct" id="job-pct-label">0% Completed</div>
+        </div>
+
+        <!-- Modern Metrics Grid -->
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <span class="m-label">⚡ Speed</span>
+            <span class="m-val" id="job-speed">-- MiB/s</span>
+          </div>
+          <div class="metric-box">
+            <span class="m-label">📦 Transferred</span>
+            <span class="m-val" id="job-size">-- / --</span>
+          </div>
+          <div class="metric-box">
+            <span class="m-label">⏱️ ETA</span>
+            <span class="m-val" id="job-eta">--:--</span>
+          </div>
+          <div class="metric-box">
+            <span class="m-label">📊 Batches</span>
+            <span class="m-val" id="job-batches">1 / 1</span>
           </div>
         </div>
 
-        <!-- Main Progress Bar & Metrics -->
-        <div class="progress-container">
-          <div class="progress-track">
-            <div class="progress-fill" id="job-progress-fill" style="width: 0%"></div>
-          </div>
-          <div class="progress-info-row">
-            <span id="job-pct-label" class="bold-text">0% Completed</span>
-            <span id="job-batches-label">0 of 0 Batches finished</span>
-            <span id="job-time-label">Elapsed: 0s</span>
-          </div>
-
-          <!-- Granular Live Speed & ETA Metrics -->
-          <div class="live-metrics-row" id="live-metrics-row">
-            <div class="metric-card">
-              <span class="metric-title">Download Speed</span>
-              <span class="metric-val" id="metric-speed">-- MiB/s</span>
+        <!-- Collapsible Console Logs Drawer -->
+        <div class="console-accordion-wrap">
+          <button type="button" class="console-toggle-btn" onclick="toggleAccordion('terminal-drawer')">
+            <span>Console & Live Logs</span>
+            <span class="accordion-arrow">▼</span>
+          </button>
+          <div class="console-drawer hidden" id="terminal-drawer">
+            <div class="console-toolbar">
+              <span class="console-status">Engine Stream Output</span>
+              <button type="button" class="btn-mini" onclick="clearTerminal()">Clear</button>
             </div>
-            <div class="metric-card">
-              <span class="metric-title">Estimated Time</span>
-              <span class="metric-val" id="metric-eta">--:--</span>
+            <div class="terminal-body" id="terminal-log">
+              <div class="terminal-line info">[Engine ready] Awaiting instructions...</div>
             </div>
-            <div class="metric-card">
-              <span class="metric-title">Size Progress</span>
-              <span class="metric-val" id="metric-size">-- / --</span>
-            </div>
-            <div class="metric-card">
-              <span class="metric-title">Queue Status</span>
-              <span class="metric-val" id="metric-queue">Active Job</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Download Queue Section -->
-        <div class="queue-section hidden" id="queue-section">
-          <div class="queue-header-row">
-            <h4 class="sub-heading">Download Queue (<span id="queue-count-num">0</span> Pending)</h4>
-          </div>
-          <div class="queue-list" id="queue-list">
-            <!-- Queued items injected here -->
-          </div>
-        </div>
-
-        <!-- Batch Cards -->
-        <div class="batches-section">
-          <h4 class="sub-heading">Batch Jobs</h4>
-          <div class="batches-list" id="batches-list">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-
-        <!-- Collapsible Terminal Console -->
-        <div class="terminal-drawer">
-          <div class="terminal-bar">
-            <span class="terminal-label">Live Download Output</span>
-            <div class="terminal-btn-group">
-              <button type="button" class="terminal-action-btn" onclick="clearTerminal()">Clear</button>
-              <button type="button" class="terminal-action-btn" onclick="copyTerminal()">Copy Logs</button>
-            </div>
-          </div>
-          <div class="terminal-box" id="terminal-box">
-            <div class="log-row text-muted">[Waiting for process output...]</div>
           </div>
         </div>
       </section>
 
-      <!-- 5. Downloaded Files Library -->
-      <section class="panel files-panel">
-        <div class="panel-header-with-action">
-          <div>
-            <h3>Downloaded Files</h3>
-            <p class="panel-desc">Media files saved in destination folder</p>
+      <!-- 5. Downloaded Media Library Shelf -->
+      <section class="card library-card" id="files-panel">
+        <div class="card-title-row">
+          <div class="title-with-icon">
+            <span class="icon-circle">📂</span>
+            <h4 class="card-title">Downloaded Files</h4>
           </div>
-          <div class="btn-group-header">
-            <button type="button" class="btn btn-secondary-sm" onclick="openContainingFolder()" title="Open destination folder in OS file explorer">
-              📁 Open Folder
-            </button>
-            <button type="button" class="btn btn-subtle" onclick="fetchFilesList()">
-              Refresh List
-            </button>
+          <div class="library-actions">
+            <button type="button" class="btn-mini" onclick="fetchFilesList()">Refresh</button>
+            <button type="button" class="btn-mini btn-highlight" onclick="openContainingFolder()">Open Folder</button>
           </div>
         </div>
 
-        <div class="table-scroller">
-          <table class="simple-table">
+        <div class="files-table-wrapper">
+          <table class="files-table">
             <thead>
               <tr>
                 <th>File Name</th>
                 <th>Size</th>
-                <th>Date Modified</th>
-                <th style="text-align: right; width: 140px;">Actions</th>
+                <th>Date</th>
+                <th style="text-align: right; width: 130px;">Action</th>
               </tr>
             </thead>
             <tbody id="files-list-tbody">
@@ -496,10 +373,150 @@
 
     </main>
 
-    <!-- Clean Footer -->
-    <footer class="site-footer">
-      <p>YouTube Playlist Downloader • Runs locally on your machine • Free & Open Source</p>
+    <!-- Clean Minimal Footer -->
+    <footer class="app-footer">
+      <p>YouTube Downloader • Direct Local Engine • Private & Ad-Free</p>
     </footer>
+
+  </div>
+
+  <!-- Settings & Preferences Modal -->
+  <div class="modal-backdrop hidden" id="settings-modal" onclick="handleSettingsBackdropClick(event)">
+    <div class="modal-card settings-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-badge">PREFERENCES</span>
+          <h3 class="modal-title">Settings & Diagnostics</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeSettingsModal()" title="Close">&times;</button>
+      </div>
+
+      <div class="modal-body settings-modal-body">
+        
+        <!-- Authentication / Bot Check Section -->
+        <div class="settings-group">
+          <h5 class="settings-group-title">🔑 YouTube Authentication / Bot Check Bypass</h5>
+          <p class="settings-group-desc">If YouTube prompts <em>"Sign in to confirm you're not a bot"</em>, paste your Netscape cookies text below or place <code>cookies.txt</code> into your phone's <code>/sdcard/Download/</code> folder.</p>
+          <textarea id="cookies-input" rows="3" class="settings-textarea" placeholder="Paste Netscape format cookies.txt text here to bypass bot verification..."></textarea>
+          
+          <div id="browser-cookies-group" style="margin-top: 0.75rem;">
+            <label for="browser-cookies" class="sub-label">Browser Cookies (Desktop only):</label>
+            <select id="browser-cookies" class="settings-select">
+              <option value="">None (Public videos — Default)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Download Features Section -->
+        <div class="settings-group">
+          <h5 class="settings-group-title">⚙️ Download Options</h5>
+          
+          <label class="settings-checkbox-item">
+            <input type="checkbox" id="chk-resume" checked />
+            <div class="chk-text">
+              <strong>Skip Already Downloaded Files</strong>
+              <span>Automatically skips files that are already completed</span>
+            </div>
+          </label>
+
+          <label class="settings-checkbox-item">
+            <input type="checkbox" id="chk-chapters" checked />
+            <div class="chk-text">
+              <strong>Embed YouTube Timestamps & Chapter Markers</strong>
+              <span>Embeds video chapters for easy scrubbing in VLC & mobile media players</span>
+            </div>
+          </label>
+
+          <label class="settings-checkbox-item">
+            <input type="checkbox" id="chk-thumb" />
+            <div class="chk-text">
+              <strong>Embed Video Thumbnail Artwork</strong>
+              <span>Sets the official video thumbnail as the media cover art</span>
+            </div>
+          </label>
+
+          <label class="settings-checkbox-item">
+            <input type="checkbox" id="chk-subs" />
+            <div class="chk-text">
+              <strong>Download Subtitles</strong>
+              <span>Downloads embedded multilingual subtitles (.vtt/.srt)</span>
+            </div>
+          </label>
+
+          <label class="settings-checkbox-item">
+            <input type="checkbox" id="chk-sponsorblock" />
+            <div class="chk-text">
+              <strong>SponsorBlock (Auto-remove sponsors & intros)</strong>
+              <span>Removes promotional shoutouts and channel intros for a clean video</span>
+            </div>
+          </label>
+        </div>
+
+        <!-- Performance & Storage Section -->
+        <div class="settings-group">
+          <h5 class="settings-group-title">📁 Storage & Parallel Concurrency</h5>
+          <div class="field-row">
+            <label for="dest-folder" class="sub-label">Download Directory:</label>
+            <input type="text" id="dest-folder" class="settings-input" value="./downloads" />
+          </div>
+
+          <div class="sliders-row">
+            <div class="slider-box">
+              <div class="slider-header">
+                <label for="workers-slider">Parallel Workers</label>
+                <span id="workers-count-label" class="badge-mini">3</span>
+              </div>
+              <input type="range" id="workers-slider" min="1" max="8" value="3" oninput="handleSliderChange('workers', this.value)" />
+            </div>
+            <div class="slider-box">
+              <div class="slider-header">
+                <label for="chunk-slider">Batch Size</label>
+                <span id="chunk-count-label" class="badge-mini">20</span>
+              </div>
+              <input type="range" id="chunk-slider" min="5" max="50" step="5" value="20" oninput="handleSliderChange('chunk', this.value)" />
+            </div>
+          </div>
+
+          <div class="field-row-split" style="margin-top: 0.5rem;">
+            <div>
+              <label for="item-start" class="sub-label">Start Video Index:</label>
+              <input type="number" id="item-start" class="settings-input" min="1" value="1" />
+            </div>
+            <div>
+              <label for="item-end" class="sub-label">End Video Index:</label>
+              <input type="number" id="item-end" class="settings-input" placeholder="All" min="1" />
+            </div>
+          </div>
+        </div>
+
+        <!-- System Diagnostics Section -->
+        <div class="settings-group">
+          <h5 class="settings-group-title">🛠️ System Diagnostics</h5>
+          <div class="status-chips-wrap">
+            <div class="status-chip" id="ytdlp-chip" title="yt-dlp Engine Status">
+              <span class="chip-dot dot-gray" id="ytdlp-dot"></span>
+              <span id="ytdlp-label">yt-dlp</span>
+            </div>
+            <div class="status-chip" id="ffmpeg-chip" title="FFmpeg Media Merger Status">
+              <span class="chip-dot dot-gray" id="ffmpeg-dot"></span>
+              <span id="ffmpeg-label">FFmpeg</span>
+            </div>
+            <div class="status-chip hidden" id="aria2c-chip" title="aria2c Multi-connection Turbo Downloader">
+              <span class="chip-dot dot-green"></span>
+              <span>aria2c Turbo</span>
+            </div>
+          </div>
+          <div style="margin-top: 0.75rem;">
+            <button type="button" class="btn-mini btn-highlight" id="btn-update-ytdlp" onclick="updateYtDlpEngine()">Update yt-dlp Engine</button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" onclick="closeSettingsModal()">Done</button>
+      </div>
+    </div>
   </div>
 
   <!-- In-Browser HTML5 Video & Audio Player Modal -->
@@ -531,6 +548,87 @@
           <a id="modal-download-direct" href="#" download class="btn btn-secondary-sm">Direct Download</a>
           <button type="button" class="btn btn-subtle" onclick="closeMediaModal()">Close</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application In-App Update Modal -->
+  <div class="modal-backdrop hidden" id="update-modal" onclick="handleUpdateBackdropClick(event)">
+    <div class="modal-card update-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-badge update-badge" id="update-modal-badge">APP UPDATE</span>
+          <h3 id="update-modal-title" class="modal-title">Application Updates</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeUpdateModal()" title="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="update-modal-body">
+        <!-- State 1: Checking... -->
+        <div id="update-state-checking" class="update-state-box hidden">
+          <div class="spinner update-spinner"></div>
+          <p class="update-state-text">Checking for latest release on GitHub...</p>
+        </div>
+
+        <!-- State 2: Up to Date -->
+        <div id="update-state-uptodate" class="update-state-box hidden">
+          <div class="update-status-icon success">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          </div>
+          <h4 class="update-status-heading">You are on the latest version!</h4>
+          <p class="update-status-desc">You are running <strong id="uptodate-version-tag">v1.3.1</strong>. No updates needed.</p>
+        </div>
+
+        <!-- State 3: Update Available -->
+        <div id="update-state-available" class="update-state-box hidden">
+          <div class="update-version-row">
+            <div class="version-chip current">
+              <span class="v-label">Current</span>
+              <span class="v-val" id="modal-curr-ver">v1.3.1</span>
+            </div>
+            <span class="version-arrow">➜</span>
+            <div class="version-chip latest">
+              <span class="v-label">New Release</span>
+              <span class="v-val" id="modal-new-ver">v1.3.2</span>
+            </div>
+          </div>
+          <div class="update-release-notes" id="modal-release-notes-container">
+            <h5>Release Details:</h5>
+            <div class="notes-content" id="modal-release-notes">New features and improvements are available in this release.</div>
+          </div>
+        </div>
+
+        <!-- State 4: Downloading & Installing -->
+        <div id="update-state-downloading" class="update-state-box hidden">
+          <h4 class="downloading-heading" id="update-dl-heading">Downloading Update...</h4>
+          <div class="update-progress-bar-container">
+            <div class="update-progress-bar-fill" id="update-dl-fill" style="width: 0%;"></div>
+          </div>
+          <div class="update-progress-stats">
+            <span id="update-dl-percent">0%</span>
+            <span id="update-dl-size">0 MB / 0 MB</span>
+          </div>
+          <p class="update-install-hint" id="update-install-hint">The Android Package Installer will open automatically once download finishes.</p>
+        </div>
+
+        <!-- State 5: Error -->
+        <div id="update-state-error" class="update-state-box hidden">
+          <div class="update-status-icon error">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <h4 class="update-status-heading">Update Check Failed</h4>
+          <p class="update-status-desc" id="update-error-desc">Unable to check for updates. Please verify your internet connection.</p>
+        </div>
+      </div>
+      <div class="modal-footer" id="update-modal-footer">
+        <button type="button" class="btn btn-subtle" onclick="closeUpdateModal()">Close</button>
+        <button type="button" class="btn btn-primary" id="btn-start-update" onclick="startAppUpdateDownload()">Download & Install</button>
       </div>
     </div>
   </div>

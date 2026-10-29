@@ -190,6 +190,18 @@ async function initSystemChecks() {
       if (ariaChip) ariaChip.classList.remove("hidden");
     }
 
+    if (data.app_version) {
+      const appVerLabel = document.getElementById("app-version-label");
+      if (appVerLabel) {
+        appVerLabel.textContent = data.app_version.startsWith("v") ? data.app_version : `v${data.app_version}`;
+      }
+    }
+
+    // Schedule silent auto-update check in background after startup
+    setTimeout(() => {
+      checkAppUpdates(false);
+    }, 2500);
+
     if (data.detected_browsers && data.detected_browsers.length > 0) {
       const select = document.getElementById("browser-cookies");
       if (select) {
@@ -319,14 +331,30 @@ function updateFormatInspectorCard(containerVal) {
   if (speedEl) speedEl.textContent = cMeta.speed;
   if (codecsEl) codecsEl.textContent = cMeta.codecs;
 
+  const est = calculateEstimatedSize(val, selectedQuality);
+  const sizeStr = currentMeta ? (est.totalItems > 1 ? est.totalFormatted : est.singleFormatted) : "";
+
   if (sizeEl) {
-    const est = calculateEstimatedSize(val, selectedQuality);
     if (!currentMeta) {
       sizeEl.textContent = "Estimated Size: Awaiting URL inspection (click Fetch Details)";
     } else if (est.totalItems > 1) {
       sizeEl.textContent = `Estimated Size: ${est.totalFormatted} (${est.totalItems} videos)`;
     } else {
       sizeEl.textContent = `Estimated Size: ${est.singleFormatted}`;
+    }
+  }
+
+  // Update big Start Download button labels
+  const btnMainLabel = document.getElementById("btn-start-label");
+  const btnSubLabel = document.getElementById("btn-start-sublabel");
+  if (btnMainLabel && btnSubLabel) {
+    const isAudio = selectedQuality === "audio" || cMeta.category === "audio";
+    if (isAudio) {
+      btnMainLabel.textContent = "Download Audio";
+      btnSubLabel.textContent = `${val.toUpperCase()} • High Quality ${sizeStr ? "• " + sizeStr : ""}`;
+    } else {
+      btnMainLabel.textContent = "Start Download";
+      btnSubLabel.textContent = `${selectedQuality || "1080p"} • ${val.toUpperCase()} ${sizeStr ? "• " + sizeStr : ""}`;
     }
   }
 
@@ -473,31 +501,25 @@ function renderAvailableResolutions(meta) {
     const fps = res.fps || 30;
     const sizeStr = sizeDisplay || "~25 MB";
 
+    let badgeHtml = "";
+    if (res.height >= 2160) {
+      badgeHtml = '<span class="q-max-badge" style="background:#f59e0b;color:#000;">4K UHD</span>';
+    } else if (res.height >= 1440) {
+      badgeHtml = '<span class="q-max-badge" style="background:#3b82f6;color:#fff;">2K QHD</span>';
+    } else if (res.height >= 1080) {
+      badgeHtml = '<span class="q-max-badge" style="background:#10b981;color:#fff;">FHD</span>';
+    } else if (res.is_max) {
+      badgeHtml = '<span class="q-max-badge">MAX</span>';
+    }
+
     box.innerHTML = `
-      ${res.is_max ? '<span class="q-max-badge">MAX</span>' : ''}
+      ${badgeHtml}
       <strong>${label}</strong>
       <span class="q-size">${sizeStr}</span>
       <span class="q-codec">${fps}fps • ${codec}</span>
     `;
     container.appendChild(box);
   });
-
-  // Render Audio Only option
-  const audioInfo = meta.audio_info || {};
-  const audioSizeDisplay = (audioInfo.codec_sizes_formatted && audioInfo.codec_sizes_formatted[curCont])
-    || (meta.is_playlist ? (audioInfo.playlist_size_formatted || "~15 MB") : (audioInfo.size_formatted || "~8 MB"));
-
-  const audioBox = document.createElement("div");
-  audioBox.className = "quality-option";
-  audioBox.setAttribute("data-quality", "audio");
-  audioBox.onclick = () => selectQuality("audio");
-
-  audioBox.innerHTML = `
-    <strong>🎵 Audio Only</strong>
-    <span class="q-size">${audioSizeDisplay}</span>
-    <span class="q-codec">MP3 / AAC / FLAC</span>
-  `;
-  container.appendChild(audioBox);
 
   updateFormatInspectorCard(curCont);
 }
@@ -508,10 +530,11 @@ function renderFallbackResolutions(meta) {
   container.innerHTML = "";
 
   const fallbacks = [
-    { res: "1080p", label: "1080p Full HD", size: "~95 MB", codec: "60fps • H.264", active: true },
+    { res: "2160p", label: "4K Ultra HD", size: "~350 MB", codec: "60fps • AV1 / VP9", badge: '<span class="q-max-badge" style="background:#f59e0b;color:#000;">4K UHD</span>' },
+    { res: "1440p", label: "1440p 2K QHD", size: "~180 MB", codec: "60fps • AV1 / VP9", badge: '<span class="q-max-badge" style="background:#3b82f6;color:#fff;">2K QHD</span>' },
+    { res: "1080p", label: "1080p Full HD", size: "~95 MB", codec: "60fps • H.264", active: true, badge: '<span class="q-max-badge" style="background:#10b981;color:#fff;">FHD</span>' },
     { res: "720p", label: "720p HD", size: "~45 MB", codec: "60fps • H.264" },
-    { res: "480p", label: "480p SD", size: "~25 MB", codec: "30fps • H.264" },
-    { res: "audio", label: "🎵 Audio Only", size: "~8 MB", codec: "HQ Stereo" }
+    { res: "480p", label: "480p SD", size: "~25 MB", codec: "30fps • H.264" }
   ];
 
   selectedQuality = "1080p";
@@ -521,12 +544,87 @@ function renderFallbackResolutions(meta) {
     box.setAttribute("data-quality", fb.res);
     box.onclick = () => selectQuality(fb.res);
     box.innerHTML = `
+      ${fb.badge || ""}
       <strong>${fb.label}</strong>
       <span class="q-size">${fb.size}</span>
       <span class="q-codec">${fb.codec}</span>
     `;
     container.appendChild(box);
   });
+
+  updateFormatInspectorCard("mp4-h264");
+}
+
+// ==============================================================================
+// Modern UI Tab & Settings Modal Handlers
+// ==============================================================================
+function switchMediaTypeTab(type) {
+  const tabVideo = document.getElementById("tab-video");
+  const tabAudio = document.getElementById("tab-audio");
+  const secVideo = document.getElementById("video-section-wrap");
+  const secAudio = document.getElementById("audio-section-wrap");
+
+  if (type === "video") {
+    if (tabVideo) tabVideo.classList.add("active");
+    if (tabAudio) tabAudio.classList.remove("active");
+    if (secVideo) secVideo.classList.remove("hidden");
+    if (secAudio) secAudio.classList.add("hidden");
+
+    let target = "1080p";
+    if (currentMeta && currentMeta.available_resolutions && currentMeta.available_resolutions.length > 0) {
+      const found = currentMeta.available_resolutions.find(r => r.height === 1080) || currentMeta.available_resolutions[0];
+      target = `${found.height}p`;
+    }
+    selectQuality(target);
+    selectContainer("mp4-h264");
+  } else {
+    if (tabAudio) tabAudio.classList.add("active");
+    if (tabVideo) tabVideo.classList.remove("active");
+    if (secAudio) secAudio.classList.remove("hidden");
+    if (secVideo) secVideo.classList.add("hidden");
+
+    selectQuality("audio");
+    selectContainer("mp3");
+  }
+}
+
+function selectContainer(containerVal) {
+  const containerSelect = document.getElementById("container-select");
+  if (containerSelect) {
+    containerSelect.value = containerVal;
+  }
+
+  // Update container pills
+  const chips = document.querySelectorAll(".pill-chip");
+  chips.forEach(c => {
+    if (c.getAttribute("data-container") === containerVal) c.classList.add("active");
+    else c.classList.remove("active");
+  });
+
+  // Update audio cards
+  const audioCards = document.querySelectorAll(".audio-card");
+  audioCards.forEach(a => {
+    if (a.getAttribute("data-container") === containerVal) a.classList.add("active");
+    else a.classList.remove("active");
+  });
+
+  handleContainerChange(containerVal);
+}
+
+function openSettingsModal() {
+  const m = document.getElementById("settings-modal");
+  if (m) m.classList.remove("hidden");
+}
+
+function closeSettingsModal() {
+  const m = document.getElementById("settings-modal");
+  if (m) m.classList.add("hidden");
+}
+
+function handleSettingsBackdropClick(e) {
+  if (e.target && e.target.id === "settings-modal") {
+    closeSettingsModal();
+  }
 }
 
 function handleSliderChange(type, val) {
@@ -1289,12 +1387,27 @@ window.onMobileProgress = function (data) {
   const speedText = document.getElementById("metric-speed");
   const etaText = document.getElementById("metric-eta");
   const sizeText = document.getElementById("metric-size");
+  const statusLabel = document.getElementById("active-job-status");
+  const titleEl = document.getElementById("active-job-title");
+
   if (progressBar) progressBar.style.width = `${data.percent}%`;
-  if (progressText) progressText.textContent = `${data.percent}% Completed`;
+  if (progressText) {
+    if (data.speed === "Muxing...") {
+      progressText.textContent = "Remuxing Video & Audio Tracks...";
+    } else {
+      progressText.textContent = `${data.percent}% Completed`;
+    }
+  }
   if (speedText) speedText.textContent = data.speed || "-- MiB/s";
   if (etaText) etaText.textContent = data.eta || "--:--";
   if (sizeText && data.total > 0) {
     sizeText.textContent = `${formatBytes(data.downloaded)} / ${formatBytes(data.total)}`;
+  }
+  if (statusLabel) {
+    statusLabel.textContent = data.speed === "Muxing..." ? "REMUXING" : "RUNNING";
+  }
+  if (titleEl && data.filename) {
+    titleEl.textContent = data.filename;
   }
 };
 
@@ -1334,6 +1447,243 @@ window.setSharedUrl = function (url) {
   if (input) {
     input.value = url;
     inspectUrl();
+  }
+};
+
+// ==============================================================================
+// 12. Application Auto-Update Controller
+// ==============================================================================
+let latestAppUpdate = null;
+let isManualUpdateCheck = false;
+
+function getStoredAppVersion() {
+  const lbl = document.getElementById("app-version-label");
+  return lbl ? lbl.textContent.trim() : "v1.3.1";
+}
+
+function openUpdateModal() {
+  const modal = document.getElementById("update-modal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  if (latestAppUpdate && latestAppUpdate.is_update_available) {
+    showUpdateState("available");
+  } else {
+    checkAppUpdates(true);
+  }
+}
+
+function closeUpdateModal() {
+  const modal = document.getElementById("update-modal");
+  if (modal) modal.classList.add("hidden");
+}
+
+function handleUpdateBackdropClick(event) {
+  if (event.target && event.target.id === "update-modal") {
+    closeUpdateModal();
+  }
+}
+
+function dismissUpdateBanner() {
+  const banner = document.getElementById("update-banner");
+  if (banner) banner.classList.add("hidden");
+}
+
+function showUpdateState(stateName) {
+  const states = ["checking", "uptodate", "available", "downloading", "error"];
+  states.forEach(s => {
+    const el = document.getElementById(`update-state-${s}`);
+    if (el) {
+      if (s === stateName) el.classList.remove("hidden");
+      else el.classList.add("hidden");
+    }
+  });
+
+  const btnStart = document.getElementById("btn-start-update");
+  if (btnStart) {
+    if (stateName === "available") {
+      btnStart.classList.remove("hidden");
+      btnStart.textContent = "Download & Install";
+      btnStart.disabled = false;
+    } else if (stateName === "downloading") {
+      btnStart.classList.add("hidden");
+    } else {
+      btnStart.classList.add("hidden");
+    }
+  }
+}
+
+async function checkAppUpdates(isManual = false) {
+  isManualUpdateCheck = isManual;
+  if (isManual) {
+    const modal = document.getElementById("update-modal");
+    if (modal) modal.classList.remove("hidden");
+    showUpdateState("checking");
+  }
+
+  // 1. Mobile Android Bridge Check
+  if (window.AndroidBridge && typeof window.AndroidBridge.checkForUpdates === "function") {
+    try {
+      window.AndroidBridge.checkForUpdates();
+      return;
+    } catch (e) {
+      console.warn("AndroidBridge.checkForUpdates failed, falling back to API", e);
+    }
+  }
+
+  // 2. Desktop Web API Check
+  try {
+    const res = await fetch("/api/app-update/check");
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const data = await res.json();
+    handleUpdateCheckResult(data);
+  } catch (err) {
+    handleUpdateCheckResult({
+      status: "error",
+      current_version: getStoredAppVersion(),
+      message: err.message || "Failed to check for updates"
+    });
+  }
+}
+
+function handleUpdateCheckResult(result) {
+  let data = result;
+  if (typeof result === "string") {
+    try {
+      data = JSON.parse(result);
+    } catch (e) {
+      data = { status: "error", message: result };
+    }
+  }
+
+  latestAppUpdate = data;
+
+  const currentVer = data.current_version || getStoredAppVersion();
+  const latestVer = data.latest_version || currentVer;
+
+  const appVerLabel = document.getElementById("app-version-label");
+  if (appVerLabel && currentVer) {
+    appVerLabel.textContent = currentVer.startsWith("v") ? currentVer : `v${currentVer}`;
+  }
+
+  const badgeDot = document.getElementById("update-badge-dot");
+  const banner = document.getElementById("update-banner");
+  const bannerVer = document.getElementById("banner-new-ver");
+
+  if (data.status === "success" && data.is_update_available) {
+    if (badgeDot) badgeDot.classList.remove("hidden");
+    if (banner) {
+      if (bannerVer) bannerVer.textContent = latestVer;
+      banner.classList.remove("hidden");
+    }
+
+    if (isManualUpdateCheck) {
+      const modalCurrVer = document.getElementById("modal-curr-ver");
+      const modalNewVer = document.getElementById("modal-new-ver");
+      const modalNotes = document.getElementById("modal-release-notes");
+
+      if (modalCurrVer) modalCurrVer.textContent = currentVer;
+      if (modalNewVer) modalNewVer.textContent = latestVer;
+      if (modalNotes) {
+        modalNotes.textContent = data.release_notes && data.release_notes.trim().length > 0
+          ? data.release_notes.trim()
+          : `Release ${latestVer} is ready to download. Includes bug fixes, engine enhancements, and media merger improvements.`;
+      }
+      showUpdateState("available");
+    }
+  } else if (data.status === "success" && !data.is_update_available) {
+    if (badgeDot) badgeDot.classList.add("hidden");
+    if (banner) banner.classList.add("hidden");
+
+    if (isManualUpdateCheck) {
+      const upToDateVer = document.getElementById("uptodate-version-tag");
+      if (upToDateVer) upToDateVer.textContent = currentVer;
+      showUpdateState("uptodate");
+    }
+  } else {
+    // Error state
+    if (isManualUpdateCheck) {
+      const errDesc = document.getElementById("update-error-desc");
+      if (errDesc) errDesc.textContent = data.message || "Unable to check for updates. Please verify your connection.";
+      showUpdateState("error");
+    }
+  }
+}
+
+function startAppUpdateDownload() {
+  if (!latestAppUpdate || !latestAppUpdate.download_url) {
+    showToast("Update download URL not found");
+    return;
+  }
+
+  showUpdateState("downloading");
+  const dlFill = document.getElementById("update-dl-fill");
+  const dlPct = document.getElementById("update-dl-percent");
+  const dlSize = document.getElementById("update-dl-size");
+  const dlHeading = document.getElementById("update-dl-heading");
+  const installHint = document.getElementById("update-install-hint");
+
+  if (dlFill) dlFill.style.width = "0%";
+  if (dlPct) dlPct.textContent = "0%";
+  if (dlSize) dlSize.textContent = "Connecting to release server...";
+  if (dlHeading) dlHeading.textContent = "Downloading Update...";
+  if (installHint) installHint.textContent = "The Android Package Installer will open automatically once download finishes.";
+
+  // If running on Android App
+  if (window.AndroidBridge && typeof window.AndroidBridge.downloadAndInstallUpdate === "function") {
+    window.AndroidBridge.downloadAndInstallUpdate(latestAppUpdate.download_url);
+    return;
+  }
+
+  // If running on Desktop Browser
+  window.open(latestAppUpdate.download_url, "_blank");
+  setTimeout(() => {
+    if (dlFill) dlFill.style.width = "100%";
+    if (dlPct) dlPct.textContent = "100%";
+    if (dlHeading) dlHeading.textContent = "Download Started in Browser";
+    if (installHint) installHint.textContent = "Your browser has begun downloading the update package.";
+  }, 1000);
+}
+
+// Android WebAppInterface Callbacks
+window.onUpdateCheckResult = function (resultJson) {
+  handleUpdateCheckResult(resultJson);
+};
+
+window.onUpdateDownloadProgress = function (percent, downloaded, total) {
+  const dlFill = document.getElementById("update-dl-fill");
+  const dlPct = document.getElementById("update-dl-percent");
+  const dlSize = document.getElementById("update-dl-size");
+
+  if (dlFill) dlFill.style.width = `${percent}%`;
+  if (dlPct) dlPct.textContent = `${percent}%`;
+  if (dlSize) {
+    dlSize.textContent = `${formatBytes(downloaded)} / ${total > 0 ? formatBytes(total) : "-- MB"}`;
+  }
+};
+
+window.onUpdateDownloadComplete = function () {
+  const dlFill = document.getElementById("update-dl-fill");
+  const dlPct = document.getElementById("update-dl-percent");
+  const dlHeading = document.getElementById("update-dl-heading");
+  const installHint = document.getElementById("update-install-hint");
+
+  if (dlFill) dlFill.style.width = "100%";
+  if (dlPct) dlPct.textContent = "100%";
+  if (dlHeading) dlHeading.textContent = "Download Complete!";
+  if (installHint) {
+    installHint.textContent = "Launching Android Package Installer... If prompted, allow installation from this source. Existing data will not be lost.";
+  }
+};
+
+window.onUpdateDownloadError = function (errorMsg) {
+  showUpdateState("error");
+  const errDesc = document.getElementById("update-error-desc");
+  if (errDesc) errDesc.textContent = `Download failed: ${errorMsg}`;
+  const btnStart = document.getElementById("btn-start-update");
+  if (btnStart) {
+    btnStart.classList.remove("hidden");
+    btnStart.textContent = "Retry Download";
+    btnStart.disabled = false;
   }
 };
 
