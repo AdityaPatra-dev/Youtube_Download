@@ -50,7 +50,7 @@ def test_api_app_update_check():
     data = response.json()
     assert "status" in data
     assert "current_version" in data
-    assert data["current_version"] == "v1.4.0"
+    assert data["current_version"] == "v1.4.1"
     assert "is_update_available" in data
     assert isinstance(data["is_update_available"], bool)
 
