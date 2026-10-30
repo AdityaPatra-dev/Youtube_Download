@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag to attach APK to (e.g. v1.4.1)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -47,10 +52,22 @@ jobs:
           name: YouTube-Downloader-Android-APK
           path: release-apk/YouTube-Downloader.apk
 
+      - name: Determine Release Tag
+        id: get_tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            VER=$(python3 -c "import re; f=open('app.py').read(); m=re.search(r'current_ver\s*=\s*[\"\']([^\"\']+)[\"\']', f); print(m.group(1) if m else 'v1.4.0')")
+            echo "tag=$VER" >> $GITHUB_OUTPUT
+          fi
+
       - name: Attach APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.4.0' }}
+          tag_name: ${{ steps.get_tag.outputs.tag }}
           files: release-apk/YouTube-Downloader.apk
 
