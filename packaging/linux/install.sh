@@ -27,9 +27,17 @@ fi
 
 # 2. Copy application bundle
 echo "[*] Installing files to ${INSTALL_DIR}..."
+if [ -d "${INSTALL_DIR}/app-profile" ]; then
+    rm -rf /tmp/yt-app-profile-backup
+    cp -r "${INSTALL_DIR}/app-profile" /tmp/yt-app-profile-backup
+fi
 rm -rf "${INSTALL_DIR}"
 mkdir -p "${INSTALL_DIR}"
 cp -r "${ROOT_DIR}/dist/youtube-downloader/"* "${INSTALL_DIR}/"
+if [ -d "/tmp/yt-app-profile-backup" ]; then
+    cp -r /tmp/yt-app-profile-backup "${INSTALL_DIR}/app-profile"
+    rm -rf /tmp/yt-app-profile-backup
+fi
 
 # 3. Create wrapper script in ~/.local/bin
 WRAPPER="${BIN_DIR}/youtube-downloader"
